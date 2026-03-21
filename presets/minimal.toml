@@ -1,0 +1,36 @@
+[meta]
+name = "Minimal"
+description = "CPU temperature and CPU usage only"
+
+[background]
+image = ""
+
+[[widget]]
+type = "metric"
+source = "cpu_temp"
+unit = "°C"
+label = "CPU Temp"
+show_label = true
+x = 92
+y = 80
+width = 300
+height = 140
+text_size = 72
+color = "#00DDFF"
+alpha = 1.0
+bold = true
+
+[[widget]]
+type = "metric"
+source = "cpu_usage"
+unit = "%"
+label = "CPU Use"
+show_label = true
+x = 92
+y = 260
+width = 300
+height = 140
+text_size = 72
+color = "#FF8800"
+alpha = 1.0
+bold = true

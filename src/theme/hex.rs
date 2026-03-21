@@ -1,0 +1,209 @@
+/// Widget hex encoder for cmd 3A custom themes.
+///
+/// Each widget is encoded as a fixed 494-hex-char string (247 bytes).
+/// The `build_widget_hex` function takes a `WidgetHexParams` struct and
+/// returns the raw bytes of the encoded widget.
+use crate::protocol::{constants::WIDGET_HEX_LEN, frame::encode_ascii_padded_bytes};
+
+/// Parameters for building a single widget's binary data.
+#[derive(Debug, Clone)]
+pub struct WidgetHexParams {
+    /// viewType: 01=text/bg, 02=metric, 03=clock, 04=image, 05=video, 07=marquee
+    pub view_type: u8,
+    pub pos_x: u16,
+    pub pos_y: u16,
+    pub width: u16,
+    pub height: u16,
+    pub text_size: u16,
+    /// 6-char ASCII color like "FFFFFF"
+    pub text_color: String,
+    /// 0–10 (app divides by 10 for opacity: 10 = fully opaque)
+    pub alpha: u8,
+    pub animation: u8,
+    pub bold: u8,
+    pub italic: u8,
+    pub underline: u8,
+    pub del_line: u8,
+    /// Show ID (e.g. 0x00 for CPU temp)
+    pub num_type: u8,
+    /// Unit string, max 5 UTF-8 bytes
+    pub num_unit: String,
+    /// 0x00 = value+unit only; 0x01 = label+value+unit
+    pub show_text: u8,
+    pub play_num: u8,
+    /// 0x00 = HH:mm:ss, 0x01 = yyyy-MM-dd, 0x02 = EEEE (weekday)
+    pub time_format: u8,
+    /// Filename on device /sdcard/, max 150 bytes
+    pub image_path: String,
+    /// Label text, max 32 bytes
+    pub num_text: String,
+    /// 0x00 = default font, 0x01 = custom
+    pub typeface_type: u8,
+    /// Font filename on device, max 32 bytes
+    pub typeface_path: String,
+}
+
+impl Default for WidgetHexParams {
+    fn default() -> Self {
+        Self {
+            view_type: 0x02,
+            pos_x: 0,
+            pos_y: 0,
+            width: 0,
+            height: 0,
+            text_size: 40,
+            text_color: "FFFFFF".into(),
+            alpha: 10,
+            animation: 0,
+            bold: 0,
+            italic: 0,
+            underline: 0,
+            del_line: 0,
+            num_type: 0x00,
+            num_unit: String::new(),
+            show_text: 0x00,
+            play_num: 0x00,
+            time_format: 0x00,
+            image_path: String::new(),
+            num_text: String::new(),
+            typeface_type: 0x00,
+            typeface_path: String::new(),
+        }
+    }
+}
+
+/// Encode a `u16` value as a 4-hex-char (2-byte) little-endian representation.
+fn le16(v: u16) -> Vec<u8> {
+    v.to_le_bytes().to_vec()
+}
+
+/// Build the 247-byte widget binary from a `WidgetHexParams`.
+///
+/// Field layout (494 hex chars = 247 bytes):
+///   viewType(1) posX(2LE) posY(2LE) width(2LE) height(2LE) textSize(2LE)
+///   textColor(6 ASCII) alpha(1) animation(1) bold(1) italic(1) underline(1) delLine(1)
+///   numType(1) numUnit(5 UTF-8) showText(1) playNum(1) timeFormat(1)
+///   imagePath(150 ASCII) numText(32 ASCII) typefaceType(1) typefacePath(32 ASCII)
+pub fn build_widget_bytes(p: &WidgetHexParams) -> Result<Vec<u8>, String> {
+    let mut out = Vec::with_capacity(WIDGET_HEX_LEN / 2);
+
+    out.push(p.view_type); // 1 byte
+    out.extend(le16(p.pos_x)); // 2 bytes
+    out.extend(le16(p.pos_y)); // 2 bytes
+    out.extend(le16(p.width)); // 2 bytes
+    out.extend(le16(p.height)); // 2 bytes
+    out.extend(le16(p.text_size)); // 2 bytes
+    out.extend(encode_ascii_padded_bytes(&p.text_color, 6)); // 6 bytes
+    out.push(p.alpha); // 1 byte
+    out.push(p.animation); // 1 byte
+    out.push(p.bold); // 1 byte
+    out.push(p.italic); // 1 byte
+    out.push(p.underline); // 1 byte
+    out.push(p.del_line); // 1 byte
+    out.push(p.num_type); // 1 byte
+    out.extend(encode_ascii_padded_bytes(&p.num_unit, 5)); // 5 bytes
+    out.push(p.show_text); // 1 byte
+    out.push(p.play_num); // 1 byte
+    out.push(p.time_format); // 1 byte
+    out.extend(encode_ascii_padded_bytes(&p.image_path, 150)); // 150 bytes
+    out.extend(encode_ascii_padded_bytes(&p.num_text, 32)); // 32 bytes
+    out.push(p.typeface_type); // 1 byte
+    out.extend(encode_ascii_padded_bytes(&p.typeface_path, 32)); // 32 bytes
+
+    let expected_bytes = WIDGET_HEX_LEN / 2; // 247
+    if out.len() != expected_bytes {
+        return Err(format!(
+            "widget byte length {} != expected {}",
+            out.len(),
+            expected_bytes
+        ));
+    }
+    Ok(out)
+}
+
+/// Build the 494-hex-char widget string (uppercase) from a `WidgetHexParams`.
+pub fn build_widget_hex(p: &WidgetHexParams) -> Result<String, String> {
+    let bytes = build_widget_bytes(p)?;
+    let hex = hex::encode_upper(&bytes);
+    debug_assert_eq!(hex.len(), WIDGET_HEX_LEN);
+    Ok(hex)
+}
+
+/// Split a list of widget byte arrays into individual cmd 3A frames to avoid
+/// TCP fragmentation. Each widget becomes its own AAF5 frame.
+///
+/// Returns `Vec<Vec<u8>>` of complete frames — the first uses theme_type=0x01
+/// (clear + add) and subsequent frames use 0x00 (append).
+pub fn split_cmd3a_frames(widget_list: &[Vec<u8>]) -> Vec<Vec<u8>> {
+    use crate::protocol::{cmd::build_cmd3a_payload, frame::build_frame_default};
+
+    widget_list
+        .iter()
+        .enumerate()
+        .map(|(i, w)| {
+            let ttype = if i == 0 { 0x01 } else { 0x00 };
+            // Pass a slice-of-slice to avoid cloning the 247-byte widget Vec.
+            let payload = build_cmd3a_payload(&[w.as_slice()], ttype);
+            build_frame_default(0x3A, &payload)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::constants::WIDGET_HEX_LEN;
+
+    #[test]
+    fn test_widget_hex_len() {
+        let p = WidgetHexParams::default();
+        let hex = build_widget_hex(&p).unwrap();
+        assert_eq!(
+            hex.len(),
+            WIDGET_HEX_LEN,
+            "widget hex must be exactly 494 chars"
+        );
+    }
+
+    #[test]
+    fn test_widget_viewtype_position() {
+        let mut p = WidgetHexParams::default();
+        p.view_type = 0x04;
+        let hex = build_widget_hex(&p).unwrap();
+        // First 2 hex chars = viewType byte
+        assert_eq!(&hex[0..2], "04");
+    }
+
+    #[test]
+    fn test_widget_pos_x_le() {
+        let mut p = WidgetHexParams::default();
+        p.pos_x = 100; // 0x0064 LE → [0x64, 0x00] → "6400"
+        let hex = build_widget_hex(&p).unwrap();
+        // viewType(2) + posX starts at offset 2
+        assert_eq!(&hex[2..6], "6400");
+    }
+
+    #[test]
+    fn test_widget_text_color_ascii_encoded() {
+        let mut p = WidgetHexParams::default();
+        p.text_color = "00DDFF".into();
+        let hex = build_widget_hex(&p).unwrap();
+        // textColor is at hex offset 22..34 (after viewType+posX+posY+width+height+textSize = 11 bytes = 22 hex chars)
+        // "00DDFF" as ASCII bytes = [0x30,0x30,0x44,0x44,0x46,0x46] = "303044444646"
+        assert_eq!(&hex[22..34], "303044444646");
+    }
+
+    #[test]
+    fn test_split_cmd3a_frames_first_clears() {
+        let p = WidgetHexParams::default();
+        let w = build_widget_bytes(&p).unwrap();
+        let frames = split_cmd3a_frames(&[w.clone(), w.clone()]);
+        assert_eq!(frames.len(), 2);
+
+        // First frame payload[0] = 0x01 (num_widgets=1), payload[1] = 0x01 (clear+add)
+        // Frame: AA F5 <len> 00 3A <payload> 00
+        // Payload starts at byte 6
+        assert_eq!(frames[0][7], 0x01, "first frame theme_type should be 0x01");
+        assert_eq!(frames[1][7], 0x00, "second frame theme_type should be 0x00");
+    }
+}

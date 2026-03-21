@@ -1,0 +1,60 @@
+[meta]
+name = "Clock + Metrics"
+description = "Digital clock at top, CPU temp and CPU usage below"
+
+[background]
+image = ""
+
+[[widget]]
+type = "clock"
+time_format = "hh:mm:ss"
+x = 52
+y = 20
+width = 380
+height = 80
+text_size = 56
+color = "#FFFFFF"
+alpha = 1.0
+bold = false
+
+[[widget]]
+type = "metric"
+source = "cpu_temp"
+unit = "°C"
+label = "CPU"
+show_label = true
+x = 12
+y = 140
+width = 230
+height = 160
+text_size = 56
+color = "#00DDFF"
+alpha = 1.0
+bold = true
+
+[[widget]]
+type = "metric"
+source = "cpu_usage"
+unit = "%"
+label = "CPU"
+show_label = true
+x = 250
+y = 140
+width = 222
+height = 160
+text_size = 56
+color = "#FF8800"
+alpha = 1.0
+bold = true
+
+[[widget]]
+type = "clock"
+time_format = "date"
+x = 92
+y = 340
+width = 300
+height = 60
+text_size = 36
+color = "#AAAAAA"
+alpha = 0.8
+bold = false

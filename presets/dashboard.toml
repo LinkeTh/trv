@@ -1,0 +1,70 @@
+[meta]
+name = "Dashboard"
+description = "4-metric 2x2 grid: CPU temp, CPU usage, GPU temp, GPU usage"
+
+[background]
+image = ""
+
+# ── Row 1 ─────────────────────────────────────────────────────────────────────
+
+[[widget]]
+type = "metric"
+source = "cpu_temp"
+unit = "°C"
+label = "CPU"
+show_label = true
+x = 12
+y = 12
+width = 230
+height = 220
+text_size = 64
+color = "#00DDFF"
+alpha = 1.0
+bold = true
+
+[[widget]]
+type = "metric"
+source = "cpu_usage"
+unit = "%"
+label = "CPU"
+show_label = true
+x = 250
+y = 12
+width = 222
+height = 220
+text_size = 64
+color = "#FF8800"
+alpha = 1.0
+bold = true
+
+# ── Row 2 ─────────────────────────────────────────────────────────────────────
+
+[[widget]]
+type = "metric"
+source = "gpu_temp"
+unit = "°C"
+label = "GPU"
+show_label = true
+x = 12
+y = 248
+width = 230
+height = 220
+text_size = 64
+color = "#44FF88"
+alpha = 1.0
+bold = true
+
+[[widget]]
+type = "metric"
+source = "gpu_usage"
+unit = "%"
+label = "GPU"
+show_label = true
+x = 250
+y = 248
+width = 222
+height = 220
+text_size = 64
+color = "#FF4488"
+alpha = 1.0
+bold = true

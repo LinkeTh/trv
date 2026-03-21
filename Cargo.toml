@@ -1,0 +1,70 @@
+[package]
+name = "trv"
+version = "0.1.0"
+edition = "2024"
+description = "TRV LCD display daemon and TUI theme editor"
+
+[[bin]]
+name = "trv"
+path = "src/main.rs"
+
+[lib]
+name = "trv"
+path = "src/lib.rs"
+
+[dependencies]
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+toml = "1.0.7"
+
+# Async runtime + networking
+tokio = { version = "1", features = [
+  "rt-multi-thread",
+  "net",
+  "io-util",
+  "sync",
+  "time",
+  "macros",
+  "process",
+  "signal",
+] }
+
+# Event passing
+crossbeam-channel = "0.5"
+
+# TUI
+ratatui = "0.30"
+crossterm = "0.29"
+
+# System metrics
+sysinfo = "0.38"
+
+# Image processing
+image = { version = "0.25", default-features = false, features = [
+  "jpeg",
+  "png",
+] }
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Config/data directories
+dirs = "6"
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+# Hex encoding/decoding
+hex = "0.4"
+
+[dev-dependencies]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

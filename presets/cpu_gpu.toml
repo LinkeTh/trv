@@ -1,0 +1,120 @@
+[meta]
+name = "CPU + GPU"
+description = "5 metrics: CPU temp, CPU usage, GPU temp, GPU usage, RAM usage with labels"
+
+[background]
+image = ""
+
+# ── CPU row ───────────────────────────────────────────────────────────────────
+
+[[widget]]
+type = "text"
+content = "CPU"
+x = 12
+y = 8
+width = 80
+height = 36
+text_size = 28
+color = "#888888"
+alpha = 0.9
+
+[[widget]]
+type = "metric"
+source = "cpu_temp"
+unit = "°C"
+label = ""
+show_label = false
+x = 12
+y = 44
+width = 220
+height = 100
+text_size = 60
+color = "#00DDFF"
+alpha = 1.0
+bold = true
+
+[[widget]]
+type = "metric"
+source = "cpu_usage"
+unit = "%"
+label = ""
+show_label = false
+x = 240
+y = 44
+width = 220
+height = 100
+text_size = 60
+color = "#FF8800"
+alpha = 1.0
+bold = true
+
+# ── GPU row ───────────────────────────────────────────────────────────────────
+
+[[widget]]
+type = "text"
+content = "GPU"
+x = 12
+y = 160
+width = 80
+height = 36
+text_size = 28
+color = "#888888"
+alpha = 0.9
+
+[[widget]]
+type = "metric"
+source = "gpu_temp"
+unit = "°C"
+label = ""
+show_label = false
+x = 12
+y = 196
+width = 220
+height = 100
+text_size = 60
+color = "#44FF88"
+alpha = 1.0
+bold = true
+
+[[widget]]
+type = "metric"
+source = "gpu_usage"
+unit = "%"
+label = ""
+show_label = false
+x = 240
+y = 196
+width = 220
+height = 100
+text_size = 60
+color = "#FF4488"
+alpha = 1.0
+bold = true
+
+# ── RAM row ───────────────────────────────────────────────────────────────────
+
+[[widget]]
+type = "text"
+content = "RAM"
+x = 12
+y = 312
+width = 80
+height = 36
+text_size = 28
+color = "#888888"
+alpha = 0.9
+
+[[widget]]
+type = "metric"
+source = "mem_usage"
+unit = "%"
+label = ""
+show_label = false
+x = 12
+y = 348
+width = 460
+height = 100
+text_size = 60
+color = "#FFDD44"
+alpha = 1.0
+bold = true
