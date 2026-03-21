@@ -103,8 +103,7 @@ mod tests {
 
     #[test]
     fn test_build_frame_basic() {
-        // Python: build_frame("15", "9001000000000000") →
-        //   AAF5 + length + 00 + 15 + payload + 00
+        // Frame format: AAF5 + length + 00 + 15 + payload + 00
         // payload = bytes.fromhex("9001000000000000") = 8 bytes
         // length = 1(sn) + 1(cmd) + 8(payload) = 10 = 0x000A
         let payload = hex::decode("9001000000000000").unwrap();
