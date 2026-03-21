@@ -37,8 +37,25 @@ pub fn save(cfg: &AppConfig) -> Result<()> {
     }
 
     let toml_str = toml::to_string_pretty(cfg).context("could not serialize config")?;
-    std::fs::write(&path, toml_str)
-        .with_context(|| format!("could not write config {:?}", path))?;
+    let tmp_name = format!(
+        "{}.tmp.{}",
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("config.toml"),
+        std::process::id()
+    );
+    let tmp_path = path.with_file_name(tmp_name);
+
+    std::fs::write(&tmp_path, toml_str)
+        .with_context(|| format!("could not write temporary config {:?}", tmp_path))?;
+
+    std::fs::rename(&tmp_path, &path).with_context(|| {
+        format!(
+            "could not atomically replace config {:?} with {:?}",
+            path, tmp_path
+        )
+    })?;
+
     Ok(())
 }
 

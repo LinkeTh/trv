@@ -204,15 +204,21 @@ pub fn push_theme_assets(theme: &Theme, dry_run: bool) {
         } else {
             let local = &theme.background.local_path;
             let remote = format!("/sdcard/{}", theme.background.image);
-            if dry_run {
-                info!("dry-run adb push {local} -> {remote}");
+            if !Path::new(local).is_file() {
+                info!(
+                    "background local_path not found: '{local}' — assuming already present as {remote}"
+                );
             } else {
-                info!("pushing background image: {local} -> {remote}");
-                let ok = adb::adb_push(local, &remote);
-                if ok {
-                    info!("background image pushed OK");
+                if dry_run {
+                    info!("dry-run adb push {local} -> {remote}");
                 } else {
-                    warn!("adb push failed for background image — continuing");
+                    info!("pushing background image: {local} -> {remote}");
+                    let ok = adb::adb_push(local, &remote);
+                    if ok {
+                        info!("background image pushed OK");
+                    } else {
+                        warn!("adb push failed for background image — continuing");
+                    }
                 }
             }
         }

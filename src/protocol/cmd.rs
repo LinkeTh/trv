@@ -65,9 +65,11 @@ pub fn build_cmd35_payload(p: &Cmd35Params) -> Result<Vec<u8>, String> {
     let bg_bytes = encode_ascii_padded_bytes(p.bg_name, 32);
 
     let bgc_bytes = if p.keep_bg_image {
-        // Prefix '#' (0x23) to trick app into keeping image visible
+        // Prefix '#' (0x23) to trick app into keeping image visible.
+        // The field is 6 bytes, so this intentionally truncates to "#RRGGB".
+        // This quirk matches observed device behavior for keep-bg mode.
         let color = normalize_color(p.bg_color)?;
-        let prefixed = format!("#{}", &color[..5]);
+        let prefixed = format!("#{}", &color);
         encode_ascii_padded_bytes(&prefixed, 6)
     } else {
         let color = normalize_color(p.bg_color)?;
@@ -132,6 +134,10 @@ pub fn build_cmd35_payload(p: &Cmd35Params) -> Result<Vec<u8>, String> {
 ///
 /// `theme_type` 0x01 = clear existing + add, 0x00 = append.
 pub fn build_cmd3a_payload(widget_payloads: &[&[u8]], theme_type: u8) -> Vec<u8> {
+    debug_assert!(
+        widget_payloads.len() <= u8::MAX as usize,
+        "too many widgets in one cmd3A payload"
+    );
     let num = widget_payloads.len() as u8;
     let mut out = Vec::new();
     out.push(num);
@@ -230,5 +236,36 @@ mod tests {
     fn test_cmd24_wake() {
         assert_eq!(build_cmd24_payload(true), vec![0x01]);
         assert_eq!(build_cmd24_payload(false), vec![0x00]);
+    }
+
+    #[test]
+    fn test_cmd35_keep_bg_image_prefix_bytes() {
+        let params = Cmd35Params {
+            num_model: 0x02,
+            theme: 0x00,
+            show1: "00",
+            value1_c: 40.0,
+            unit1: "°C",
+            show2: "05",
+            value2_c: 10.0,
+            unit2: "%",
+            bg_name: "bg.jpg",
+            bg_color: "112233",
+            text_color: "FFFFFF",
+            show3: None,
+            value3_c: 0.0,
+            unit3: "",
+            show4: None,
+            value4_c: 0.0,
+            unit4: "",
+            keep_bg_image: true,
+        };
+
+        let payload = build_cmd35_payload(&params).expect("cmd35 payload");
+
+        // For num_model 0x02 layout:
+        // [nm,theme=2] + [show1 block=6] + [show2 block=6] + [bg_name 32] + [bg_color 6] + [text_color 6] + [pad 1]
+        let bg_color_start = (2 + 6 + 6) + 32;
+        assert_eq!(&payload[bg_color_start..bg_color_start + 6], b"#11223");
     }
 }

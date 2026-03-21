@@ -64,6 +64,8 @@ impl TextInput {
 
     /// Process a key event and return the `InputResult`.
     pub fn handle_key(&mut self, key: KeyEvent) -> InputResult {
+        self.ensure_cursor_boundary();
+
         match key.code {
             KeyCode::Enter => return InputResult::Confirmed,
             KeyCode::Esc => return InputResult::Cancelled,
@@ -141,6 +143,15 @@ impl TextInput {
     }
 
     // ── private helpers ───────────────────────────────────────────────────────
+
+    fn ensure_cursor_boundary(&mut self) {
+        if self.cursor > self.value.len() {
+            self.cursor = self.value.len();
+        }
+        if !self.value.is_char_boundary(self.cursor) {
+            self.cursor = self.prev_char_boundary(self.cursor);
+        }
+    }
 
     fn prev_char_boundary(&self, pos: usize) -> usize {
         let mut p = pos.saturating_sub(1);
@@ -237,5 +248,24 @@ mod tests {
         inp.insert_str("ZZ");
         assert_eq!(inp.value, "aZZb");
         assert_eq!(inp.cursor, 3);
+    }
+
+    #[test]
+    fn delete_handles_multibyte_characters() {
+        let mut inp = TextInput::new("a🙂b");
+        inp.handle_key(key(KeyCode::Home));
+        inp.handle_key(key(KeyCode::Right)); // after 'a'
+        inp.handle_key(key(KeyCode::Delete)); // delete emoji
+        assert_eq!(inp.value, "ab");
+        assert_eq!(inp.cursor, 1);
+    }
+
+    #[test]
+    fn malformed_cursor_is_repaired_before_delete() {
+        let mut inp = TextInput::new("a🙂b");
+        inp.cursor = 2; // inside the emoji byte sequence
+        inp.handle_key(key(KeyCode::Delete));
+        assert_eq!(inp.value, "ab");
+        assert_eq!(inp.cursor, 1);
     }
 }

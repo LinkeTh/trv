@@ -187,6 +187,10 @@ pub fn run_loop(
                 Event::Tick => {}
                 Event::MetricsUpdate(snapshot) => app.metrics = snapshot,
             }
+
+            if app.should_quit {
+                break;
+            }
         }
 
         app.poll_push_result();

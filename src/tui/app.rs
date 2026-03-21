@@ -995,7 +995,7 @@ impl App {
                 self.overlay = Overlay::None;
 
                 if !path_str.is_empty() {
-                    let path = PathBuf::from(&path_str);
+                    let path = expand_tilde_path(&path_str);
                     if let Some(theme) = &self.theme {
                         match save_theme_file(theme, &path) {
                             Ok(()) => {
@@ -1048,7 +1048,7 @@ impl App {
                 self.overlay = Overlay::None;
 
                 if !path_str.is_empty() {
-                    let path = PathBuf::from(&path_str);
+                    let path = expand_tilde_path(&path_str);
                     match load_theme_file(&path) {
                         Ok(t) => {
                             let count = t.widgets.len();
@@ -1170,6 +1170,18 @@ fn sync_color_input_from_cursor(cursor: usize, input: &mut TextInput) {
     }
 }
 
+fn expand_tilde_path(raw: &str) -> PathBuf {
+    if raw == "~" {
+        return dirs::home_dir().unwrap_or_else(|| PathBuf::from(raw));
+    }
+    if let Some(stripped) = raw.strip_prefix("~/") {
+        if let Some(home) = dirs::home_dir() {
+            return home.join(stripped);
+        }
+    }
+    PathBuf::from(raw)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1249,6 +1261,19 @@ mod tests {
         assert_eq!(
             app.prop_input.as_ref().map(|i| i.value.as_str()),
             Some("abcd")
+        );
+    }
+
+    #[test]
+    fn expand_tilde_path_uses_home_directory() {
+        let Some(home) = dirs::home_dir() else {
+            return;
+        };
+
+        assert_eq!(expand_tilde_path("~"), home);
+        assert_eq!(
+            expand_tilde_path("~/themes/a.toml"),
+            home.join("themes/a.toml")
         );
     }
 }

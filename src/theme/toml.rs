@@ -23,6 +23,10 @@ pub fn serialize_theme(theme: &Theme) -> Result<String> {
 
 /// Save a theme to a TOML file.
 pub fn save_theme_file(theme: &Theme, path: &Path) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("creating theme directory {:?}", parent))?;
+    }
     let content = serialize_theme(theme)?;
     std::fs::write(path, content).with_context(|| format!("writing theme file {:?}", path))
 }
@@ -31,6 +35,8 @@ pub fn save_theme_file(theme: &Theme, path: &Path) -> Result<()> {
 mod tests {
     use super::*;
     use crate::theme::model::{MetricSource, TimeFormat, WidgetKind};
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     const SAMPLE_TOML: &str = r##"
 [meta]
@@ -102,5 +108,26 @@ show_label = true
         let reparsed = parse_theme_toml(&serialized).expect("should reparse");
         assert_eq!(reparsed.meta.name, theme.meta.name);
         assert_eq!(reparsed.widgets.len(), theme.widgets.len());
+    }
+
+    #[test]
+    fn test_save_theme_creates_parent_dirs() {
+        let theme = parse_theme_toml(SAMPLE_TOML).expect("should parse");
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("trv_theme_save_test_{unique}"));
+        let path: PathBuf = root.join("nested").join("theme.toml");
+
+        save_theme_file(&theme, &path).expect("save should create dirs");
+        assert!(path.is_file());
+
+        let loaded = load_theme_file(&path).expect("re-load saved theme");
+        assert_eq!(loaded.meta.name, theme.meta.name);
+
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

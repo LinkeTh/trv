@@ -31,6 +31,10 @@ pub fn adb_forward(port: u16) -> bool {
 /// `local_path` — absolute path on the host.
 /// `remote_path` — path on the device (e.g. `/sdcard/background.jpg`).
 pub fn adb_push(local_path: &str, remote_path: &str) -> bool {
+    if !is_safe_adb_arg(local_path) || !is_safe_adb_arg(remote_path) {
+        return false;
+    }
+
     match Command::new("adb")
         .args(["push", local_path, remote_path])
         .stdout(std::process::Stdio::null())
@@ -56,3 +60,28 @@ pub fn adb_available() -> bool {
 
 /// Default inter-frame delay for split cmd3A sends (50 ms).
 pub const INTER_FRAME_DELAY: Duration = Duration::from_millis(50);
+
+fn is_safe_adb_arg(arg: &str) -> bool {
+    let trimmed = arg.trim();
+    !trimmed.is_empty() && !trimmed.starts_with('-')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_safe_adb_arg;
+
+    #[test]
+    fn adb_arg_rejects_empty_and_flag_like_values() {
+        assert!(!is_safe_adb_arg(""));
+        assert!(!is_safe_adb_arg("   "));
+        assert!(!is_safe_adb_arg("-bad"));
+        assert!(!is_safe_adb_arg(" --also-bad"));
+    }
+
+    #[test]
+    fn adb_arg_accepts_normal_paths() {
+        assert!(is_safe_adb_arg("/home/user/a.png"));
+        assert!(is_safe_adb_arg("/sdcard/background.jpg"));
+        assert!(is_safe_adb_arg("relative/path.png"));
+    }
+}

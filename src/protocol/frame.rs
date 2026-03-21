@@ -16,9 +16,15 @@
 /// Returns the complete frame as a `Vec<u8>`.
 pub fn build_frame(cmd: u8, payload: &[u8], sn: u8, tail: u8) -> Vec<u8> {
     // length = SN(1) + CMD(1) + payload — tail NOT included
-    let length: u16 = (1 + 1 + payload.len()) as u16;
+    let length_raw = 1usize + 1usize + payload.len();
+    assert!(
+        length_raw <= u16::MAX as usize,
+        "frame payload too large: {} bytes",
+        payload.len()
+    );
+    let length: u16 = length_raw as u16;
 
-    let mut frame = Vec::with_capacity(4 + 2 + 1 + 1 + payload.len() + 1);
+    let mut frame = Vec::with_capacity(2 + 2 + 1 + 1 + payload.len() + 1);
     frame.extend_from_slice(b"\xAA\xF5");
     frame.extend_from_slice(&length.to_be_bytes());
     frame.push(sn);
@@ -147,5 +153,12 @@ mod tests {
         // 400 as 2-byte LE = [0x90, 0x01]
         let b = encode_unsigned_le(400, 2);
         assert_eq!(b, vec![0x90, 0x01]);
+    }
+
+    #[test]
+    #[should_panic(expected = "frame payload too large")]
+    fn test_build_frame_rejects_oversized_payload() {
+        let payload = vec![0u8; 65_534];
+        let _ = build_frame(0x15, &payload, 0x00, 0x00);
     }
 }
