@@ -829,13 +829,6 @@ impl App {
             KeyCode::Enter => {
                 self.activate_property_editor();
             }
-            KeyCode::Char(' ') if no_ctrl_alt(&key) => {
-                if let Some(field) = self.current_field()
-                    && field.kind == FieldType::Toggle
-                {
-                    self.toggle_field(&field);
-                }
-            }
             _ => {}
         }
     }

@@ -194,7 +194,7 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect) {
         let hint = if app.prop_input.is_some() {
             " ⏎:confirm  Esc:cancel "
         } else {
-            " ⏎:edit  ␣:toggle  ↑/↓:select "
+            " ⏎:edit  ↑/↓:select "
         };
         block = block.title_bottom(Line::from(Span::styled(
             hint,
@@ -434,7 +434,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         Focus::Properties => "Properties",
     };
 
-    let hints = " Ctrl+n:new  Ctrl+s:save  Ctrl+o:open  p:push  r:rotate  Ctrl+r:auto-rotate  ⇥:focus  q:quit  ?:help";
+    let hints = " Ctrl+n:new  Ctrl+s:save  Ctrl+o:open  p:push  r:rotate  Ctrl+r:auto-rotate  Tab:focus  q:quit  ?:help";
 
     let left = Span::styled(
         theme_indicator,
@@ -467,7 +467,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
 // ─── Help overlay ────────────────────────────────────────────────────────────
 
 fn draw_help_overlay(f: &mut Frame, area: Rect) {
-    let popup_w = 56u16.min(area.width.saturating_sub(4));
+    let popup_w = 84u16.min(area.width.saturating_sub(4));
     let popup_h = 28u16.min(area.height.saturating_sub(4));
     let popup_area = centered_rect(popup_w, popup_h, area);
 
@@ -483,13 +483,12 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         ("↑ / k", "Previous widget / field"),
         ("↓ / j", "Next widget / field"),
         ("Enter", "Edit/select/toggle field"),
-        ("Space", "Toggle boolean field"),
         ("Esc", "Cancel / back to sidebar"),
         ("a", "Add new widget (sidebar)"),
         ("d", "Delete selected widget"),
         ("Ctrl+↑ / Ctrl+↓", "Reorder widget in list"),
-        ("←/↑/→/↓", "Move widget (canvas, 1px)"),
-        ("Shift+←/↑/→/↓", "Move widget (canvas, 10px)"),
+        ("←↑↓→", "Move widget (canvas, 1px)"),
+        ("Shift+←↑↓→", "Move widget (canvas, 10px)"),
         ("p", "Push theme to device"),
         ("r", "Cycle rotations"),
         ("Ctrl+n", "Create new theme"),
@@ -625,9 +624,9 @@ fn draw_color_picker_overlay(
     let mut lines: Vec<Line> = Vec::new();
 
     let hint = if input_active {
-        " ⏎:apply  ⇥:palette  Esc:cancel"
+        " ⏎:apply  Tab:palette  Esc:cancel"
     } else {
-        " ←/↑/→/↓/hjkl:select  ⏎:apply  ⇥:hex  Esc:cancel"
+        " ←↑↓→:select  ⏎:apply  Tab:hex  Esc:cancel"
     };
     lines.push(Line::from(Span::styled(
         hint,
@@ -835,7 +834,7 @@ fn draw_new_theme_overlay(f: &mut Frame, area: Rect, state: &NewThemeDialogState
 
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
-            " ⏎:next/create  ⇥:next  ⇧⇥:prev  Esc:cancel",
+            " ⏎:next/create  Tab:next  Shift+Tab:prev  Esc:cancel",
             Style::default().fg(palette::OVERLAY1),
         ))),
         sections[3],
@@ -917,12 +916,12 @@ fn draw_save_overlay(f: &mut Frame, area: Rect, state: &SaveDialogState) {
         ))
     } else if state.input_active {
         Line::from(Span::styled(
-            " ⏎:save  ⇥:list  Esc:cancel",
+            " ⏎:save  Tab:list  Esc:cancel",
             Style::default().fg(palette::OVERLAY1),
         ))
     } else {
         Line::from(Span::styled(
-            " ⏎:pick/open dir  Backspace:parent  .:hidden  ⇥:path  Esc:cancel",
+            " ⏎:pick/open dir  Backspace:parent  .:hidden  Tab:path  Esc:cancel",
             Style::default().fg(palette::OVERLAY1),
         ))
     };

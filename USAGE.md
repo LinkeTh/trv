@@ -72,11 +72,11 @@ Bottom strip panels:
 
 ### Canvas panel (device preview)
 
-| Key | Action |
-|-----|--------|
-| `←` `↑` `→` `↓` | Move selected widget 1 px (non-video widgets) |
-| `Shift+←/↑/→/↓` | Move selected widget 10 px (non-video widgets) |
-| `j` / `k` | Scroll widget selection without moving |
+| Key                      | Action |
+|--------------------------|--------|
+| `←` / `↑` / `↓` / `→`          | Move selected widget 1 px (non-video widgets) |
+| `Shift`+`←` / `↑` / `↓` / `→`  | Move selected widget 10 px (non-video widgets) |
+| `j` / `k`                | Scroll widget selection without moving | 
 
 ### Properties panel (field editor)
 
@@ -126,7 +126,7 @@ Inside the **Open theme** explorer overlay:
 
 | Key | Action |
 |-----|--------|
-| `↑` / `k`, `↓` / `j` | Move selection |
+| `↑` / `k` /  `↓` / `j` | Move selection |
 | `Home` / `End` | Jump to first / last entry |
 | `PageUp` / `PageDown` | Scroll by page |
 | `Enter` | Enter directory or open selected `.toml` file |
@@ -138,7 +138,7 @@ Inside the **Save theme** explorer overlay:
 
 | Key | Action |
 |-----|--------|
-| `↑` / `k`, `↓` / `j` | Move selection |
+| `↑` / `k` /  `↓` / `j` | Move selection |
 | `Home` / `End` | Jump to first / last entry |
 | `PageUp` / `PageDown` | Scroll by page |
 | `Enter` (list mode) | Enter directory or copy selected file path into path field |
