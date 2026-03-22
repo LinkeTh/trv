@@ -124,13 +124,22 @@ Every widget has these common fields:
 | `color` | `#RRGGBB` hex (e.g. `#00DDFF`) |
 | `alpha` | `0.00` – `1.00` |
 | `bold`, `italic`, `underline`, `strike` | `true` or `false` |
-| `font` | Filename on device (e.g. `NI7SEG.TTF`), or empty |
+| `font` | Fixed font selector dropdown (`default` for built-in fallback) |
 
 Kind-specific fields:
 
 **Metric:**  `source`, `unit`, `label`, `show_label`
 
 Valid `source` values: `cpu_temp`, `gpu_temp`, `cpu_usage`, `gpu_usage`, `mem_usage`
+
+Valid `font` selector values:
+`default`, `msyh`, `arial`, `impact`, `calibri`, `georgia`, `ni7seg`,
+`harmonyos_black`, `harmonyos_bold`, `harmonyos_light`,
+`harmonyos_medium`, `harmonyos_thin`
+
+Notes:
+- These map to firmware/app built-in font assets (not arbitrary `/sdcard` font files).
+- `harmonyos_bold` is normalized to the firmware token with a typo (`blod`) internally.
 
 **Clock:**  `time_format`
 

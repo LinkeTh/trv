@@ -3,7 +3,10 @@
 /// `widget_fields` returns a flat ordered list of `(name, current_value_string)`
 /// pairs for a given widget.  `apply_field` takes a field name and a new
 /// string value, validates it, and applies it to the widget in-place.
-use crate::theme::model::{MetricSource, TimeFormat, Widget, WidgetKind};
+use crate::theme::model::{
+    FONT_OPTION_DEFAULT, FONT_OPTIONS, MetricSource, TimeFormat, Widget, WidgetKind,
+    normalize_font_option,
+};
 
 // ── Field list ────────────────────────────────────────────────────────────────
 
@@ -101,8 +104,10 @@ pub fn widget_fields(w: &Widget) -> Vec<Field> {
         },
         Field {
             name: "font",
-            value: w.font.clone(),
-            kind: FieldType::Text,
+            value: normalize_font_option(&w.font)
+                .unwrap_or(w.font.trim())
+                .to_string(),
+            kind: FieldType::Dropdown(FONT_OPTIONS),
         },
     ];
 
@@ -198,7 +203,16 @@ pub fn apply_field(w: &mut Widget, field: &str, value: &str) -> Result<(), Strin
         "italic" => w.italic = parse_bool(v, "italic")?,
         "underline" => w.underline = parse_bool(v, "underline")?,
         "strike" => w.strikethrough = parse_bool(v, "strike")?,
-        "font" => w.font = v.to_string(),
+        "font" => {
+            let option = normalize_font_option(v).ok_or_else(|| {
+                format!("unknown font '{}' — valid: {}", v, FONT_OPTIONS.join(", "))
+            })?;
+            if option == FONT_OPTION_DEFAULT {
+                w.font.clear();
+            } else {
+                w.font = option.to_string();
+            }
+        }
 
         // Kind-specific
         "source" => {
@@ -251,7 +265,6 @@ pub fn source_to_str(src: &MetricSource) -> &'static str {
         MetricSource::CpuUsage => "cpu_usage",
         MetricSource::GpuUsage => "gpu_usage",
         MetricSource::MemUsage => "mem_usage",
-        MetricSource::Fixed(_) => "fixed",
     }
 }
 
@@ -419,6 +432,19 @@ mod tests {
 
         let color = fields.iter().find(|f| f.name == "color").unwrap();
         assert_eq!(color.kind, FieldType::Color);
+
+        let font = fields.iter().find(|f| f.name == "font").unwrap();
+        assert_eq!(font.kind, FieldType::Dropdown(FONT_OPTIONS));
+    }
+
+    #[test]
+    fn apply_font_normalizes_to_canonical_option() {
+        let mut w = metric_widget();
+        apply_field(&mut w, "font", "NI7SEG.TTF").unwrap();
+        assert_eq!(w.font, "ni7seg");
+
+        apply_field(&mut w, "font", "default").unwrap();
+        assert!(w.font.is_empty());
     }
 
     #[test]

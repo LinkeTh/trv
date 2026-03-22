@@ -75,6 +75,99 @@ fn default_alpha() -> f32 {
     1.0
 }
 
+pub const FONT_OPTION_DEFAULT: &str = "default";
+
+/// Supported font selectors for custom-theme widgets.
+pub const FONT_OPTIONS: &[&str] = &[
+    FONT_OPTION_DEFAULT,
+    "msyh",
+    "arial",
+    "impact",
+    "calibri",
+    "georgia",
+    "ni7seg",
+    "harmonyos_black",
+    "harmonyos_bold",
+    "harmonyos_light",
+    "harmonyos_medium",
+    "harmonyos_thin",
+];
+
+/// Normalize a user/font-file string into a canonical font selector.
+///
+/// Accepts both selector values (e.g. `harmonyos_bold`) and legacy asset-like
+/// names (e.g. `NI7SEG.TTF`, `HarmonyOS_Sans_Bold.ttf`).
+pub fn normalize_font_option(font: &str) -> Option<&'static str> {
+    let trimmed = font.trim();
+    if trimmed.is_empty() {
+        return Some(FONT_OPTION_DEFAULT);
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    if lower == FONT_OPTION_DEFAULT {
+        return Some(FONT_OPTION_DEFAULT);
+    }
+
+    if lower.contains("msyh") {
+        return Some("msyh");
+    }
+    if lower.contains("arial") {
+        return Some("arial");
+    }
+    if lower.contains("impact") {
+        return Some("impact");
+    }
+    if lower.contains("calibri") {
+        return Some("calibri");
+    }
+    if lower.contains("georgia") {
+        return Some("georgia");
+    }
+    if lower.contains("ni7seg") {
+        return Some("ni7seg");
+    }
+
+    if lower.contains("harmonyos") {
+        if lower.contains("black") {
+            return Some("harmonyos_black");
+        }
+        if lower.contains("bold") || lower.contains("blod") {
+            return Some("harmonyos_bold");
+        }
+        if lower.contains("light") {
+            return Some("harmonyos_light");
+        }
+        if lower.contains("medium") {
+            return Some("harmonyos_medium");
+        }
+        if lower.contains("thin") {
+            return Some("harmonyos_thin");
+        }
+    }
+
+    None
+}
+
+/// Map canonical font selector to the protocol-side typeface string.
+fn font_option_to_protocol(option: &str) -> Option<&'static str> {
+    match option {
+        FONT_OPTION_DEFAULT => None,
+        "msyh" => Some("msyh"),
+        "arial" => Some("arial"),
+        "impact" => Some("impact"),
+        "calibri" => Some("calibri"),
+        "georgia" => Some("georgia"),
+        "ni7seg" => Some("ni7seg"),
+        "harmonyos_black" => Some("harmonyos_black"),
+        // Firmware checks for the typo token "blod" when selecting bold.
+        "harmonyos_bold" => Some("harmonyos_blod"),
+        "harmonyos_light" => Some("harmonyos_light"),
+        "harmonyos_medium" => Some("harmonyos_medium"),
+        "harmonyos_thin" => Some("harmonyos_thin"),
+        _ => None,
+    }
+}
+
 /// Widget kind — determines what the widget displays and its protocol viewType.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -174,8 +267,6 @@ pub enum MetricSource {
     CpuUsage,
     GpuUsage,
     MemUsage,
-    /// Fixed value (e.g. for placeholders)
-    Fixed(f64),
 }
 
 impl MetricSource {
@@ -187,7 +278,6 @@ impl MetricSource {
             MetricSource::MemUsage => "06",
             MetricSource::GpuTemp => "0D",
             MetricSource::GpuUsage => "0E",
-            MetricSource::Fixed(_) => "00", // default, caller should handle fixed specially
         }
     }
 
@@ -231,6 +321,17 @@ impl TryFrom<&Widget> for crate::theme::hex::WidgetHexParams {
         let text_color =
             normalize_color(&w.color).map_err(|e| format!("widget color error: {}", e))?;
 
+        let font_option = normalize_font_option(&w.font).ok_or_else(|| {
+            format!(
+                "unsupported font '{}': choose from fixed font selectors",
+                w.font
+            )
+        })?;
+        let (typeface_type, typeface_path) = match font_option_to_protocol(font_option) {
+            Some(v) => (0x01, v),
+            None => (0x00, ""),
+        };
+
         let mut p = WidgetHexParams {
             view_type: w.view_type(),
             pos_x: w.x,
@@ -244,8 +345,8 @@ impl TryFrom<&Widget> for crate::theme::hex::WidgetHexParams {
             italic: if w.italic { 1 } else { 0 },
             underline: if w.underline { 1 } else { 0 },
             del_line: if w.strikethrough { 1 } else { 0 },
-            typeface_path: w.font.clone(),
-            typeface_type: if w.font.is_empty() { 0x00 } else { 0x01 },
+            typeface_path: typeface_path.to_string(),
+            typeface_type,
             ..Default::default()
         };
 
@@ -307,9 +408,6 @@ impl TryFrom<&Widget> for crate::theme::hex::WidgetHexParams {
 
 /// Extract all unique `(show_id, MetricSource)` pairs from a theme's metric widgets.
 ///
-/// `Fixed` sources are excluded — they are static values embedded in the widget
-/// definition and do not need to be updated via cmd15.
-///
 /// If two metric widgets share the same show_id (same `MetricSource`), only the
 /// first occurrence is kept to avoid duplicate cmd15 writes at the same offset.
 pub fn theme_metric_sources(theme: &Theme) -> Vec<(String, MetricSource)> {
@@ -319,10 +417,6 @@ pub fn theme_metric_sources(theme: &Theme) -> Vec<(String, MetricSource)> {
         .iter()
         .filter_map(|w| {
             if let WidgetKind::Metric { source, .. } = &w.kind {
-                // Exclude Fixed — static values need no runtime update.
-                if matches!(source, MetricSource::Fixed(_)) {
-                    return None;
-                }
                 let id = source.show_id().to_string();
                 if seen.insert(id.clone()) {
                     Some((id, source.clone()))
@@ -347,6 +441,66 @@ mod tests {
         assert_eq!(MetricSource::MemUsage.show_id(), "06");
         assert_eq!(MetricSource::GpuTemp.show_id(), "0D");
         assert_eq!(MetricSource::GpuUsage.show_id(), "0E");
+    }
+
+    #[test]
+    fn test_normalize_font_option_accepts_legacy_names() {
+        assert_eq!(normalize_font_option(""), Some("default"));
+        assert_eq!(normalize_font_option("NI7SEG.TTF"), Some("ni7seg"));
+        assert_eq!(
+            normalize_font_option("HarmonyOS_Sans_Bold.ttf"),
+            Some("harmonyos_bold")
+        );
+        assert_eq!(normalize_font_option("unknown_font.ttf"), None);
+    }
+
+    #[test]
+    fn test_font_bold_selector_maps_to_firmware_typo_token() {
+        let w = Widget {
+            kind: WidgetKind::Text {
+                content: "CPU".into(),
+            },
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 40,
+            text_size: 30,
+            color: "FFFFFF".into(),
+            alpha: 1.0,
+            bold: false,
+            italic: false,
+            underline: false,
+            strikethrough: false,
+            font: "harmonyos_bold".into(),
+        };
+
+        let p = crate::theme::hex::WidgetHexParams::try_from(&w).expect("text conversion");
+        assert_eq!(p.typeface_type, 0x01);
+        assert_eq!(p.typeface_path, "harmonyos_blod");
+    }
+
+    #[test]
+    fn test_widget_rejects_unknown_font_selector() {
+        let w = Widget {
+            kind: WidgetKind::Text {
+                content: "CPU".into(),
+            },
+            x: 0,
+            y: 0,
+            width: 120,
+            height: 40,
+            text_size: 30,
+            color: "FFFFFF".into(),
+            alpha: 1.0,
+            bold: false,
+            italic: false,
+            underline: false,
+            strikethrough: false,
+            font: "my_custom_font.ttf".into(),
+        };
+
+        let err = crate::theme::hex::WidgetHexParams::try_from(&w).unwrap_err();
+        assert!(err.contains("unsupported font"));
     }
 
     #[test]

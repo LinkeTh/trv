@@ -114,14 +114,6 @@ enum Commands {
         /// Preset slug (see `trv list` for available slugs)
         slug: String,
     },
-
-    /// Probe device: dump firmware info and capabilities
-    Probe {
-        #[arg(long, default_value = "127.0.0.1")]
-        host: String,
-        #[arg(long, default_value_t = 22222)]
-        port: u16,
-    },
 }
 
 #[tokio::main]
@@ -307,11 +299,6 @@ async fn main() {
                     }
                 }
             }
-        }
-
-        Commands::Probe { host, port } => {
-            eprintln!("probe {}:{} — not yet implemented", host, port);
-            std::process::exit(1);
         }
     }
 }

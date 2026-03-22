@@ -280,7 +280,6 @@ fn metric_source_key(source: &MetricSource) -> &'static str {
         MetricSource::CpuUsage => "cpu_usage",
         MetricSource::GpuUsage => "gpu_usage",
         MetricSource::MemUsage => "mem_usage",
-        MetricSource::Fixed(_) => "fixed",
     }
 }
 

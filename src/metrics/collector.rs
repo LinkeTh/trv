@@ -67,7 +67,6 @@ impl MetricCollector {
                 MetricSource::MemUsage => memory::mem_usage(&self.system),
                 MetricSource::GpuTemp => gpu::gpu_temp(),
                 MetricSource::GpuUsage => gpu::gpu_usage(),
-                MetricSource::Fixed(v) => Some(*v),
             };
 
             if let Some(v) = value {
@@ -82,14 +81,6 @@ impl MetricCollector {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_fixed_source_collected() {
-        let mut collector = MetricCollector::new(0.0);
-        let sources = vec![("00".to_string(), MetricSource::Fixed(42.0))];
-        let readings = collector.collect(&sources);
-        assert_eq!(readings.get("00"), Some(&42.0));
-    }
 
     #[test]
     fn test_cpu_usage_collected() {
@@ -116,11 +107,11 @@ mod tests {
     #[test]
     fn test_temp_offset_applied() {
         let mut collector = MetricCollector::new(5.0);
-        // We can only test offset logic indirectly via Fixed source;
-        // real temp sources depend on hardware.
-        let sources = vec![("00".to_string(), MetricSource::Fixed(40.0))];
+        // Real temp sources depend on hardware; this just exercises the path.
+        let sources = vec![("00".to_string(), MetricSource::CpuTemp)];
         let readings = collector.collect(&sources);
-        // Fixed sources don't apply temp_offset — offset is only for sensor reads
-        assert_eq!(readings.get("00"), Some(&40.0));
+        if let Some(&v) = readings.get("00") {
+            assert!((5.0..=135.0).contains(&v), "cpu_temp {} out of range", v);
+        }
     }
 }
