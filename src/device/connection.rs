@@ -99,15 +99,3 @@ pub async fn send_frames(
     }
     Ok(replies)
 }
-
-/// Check if the device is reachable by attempting a TCP connection.
-pub async fn probe(host: &str, port: u16) -> bool {
-    let addr = format!("{}:{}", host, port);
-    timeout(
-        Duration::from_millis(DEFAULT_CONNECT_TIMEOUT_MS),
-        TcpStream::connect(&addr),
-    )
-    .await
-    .map(|r| r.is_ok())
-    .unwrap_or(false)
-}

@@ -1,12 +1,12 @@
-/// AAF5 protocol frame builder and utilities.
-///
-/// Frame format:
-///   `AAF5` (2 bytes magic)
-///   + length (2 bytes, big-endian) — covers SN + CMD + payload bytes, NOT the tail
-///   + SN (1 byte)
-///   + CMD (1 byte)
-///   + payload (variable)
-///   + tail (1 byte, always 0x00)
+//! AAF5 protocol frame builder and utilities.
+//!
+//! Frame format:
+//!   `AAF5` (2 bytes magic)
+//!   + length (2 bytes, big-endian) — covers SN + CMD + payload bytes, NOT the tail
+//!   + SN (1 byte)
+//!   + CMD (1 byte)
+//!   + payload (variable)
+//!   + tail (1 byte, always 0x00)
 
 /// Build a complete AAF5 frame.
 ///
@@ -37,26 +37,6 @@ pub fn build_frame(cmd: u8, payload: &[u8], sn: u8, tail: u8) -> Vec<u8> {
 /// Build a frame with default SN=0x00 and tail=0x00.
 pub fn build_frame_default(cmd: u8, payload: &[u8]) -> Vec<u8> {
     build_frame(cmd, payload, 0x00, 0x00)
-}
-
-/// Simulate the app's parser: extract (cmd_byte, content_hex).
-///
-/// The app's TCP handler does `result.substring(12, len - 1)` on the received
-/// hex string, so content strips the 12-char header (AAF5 + len + SN + CMD)
-/// and drops 1 char from the tail (not 2, because the tail "00" is 2 chars
-/// but the app only strips len-1).
-///
-/// This is used only for dry-run logging/debugging.
-pub fn app_parser_preview(frame: &[u8]) -> (u8, String) {
-    let cmd = if frame.len() > 5 { frame[5] } else { 0 };
-    // Content: everything between header (6 bytes = 12 hex chars) and last byte
-    let content = if frame.len() > 7 {
-        let payload = &frame[6..frame.len() - 1]; // strip header(6) and tail(1)
-        hex::encode_upper(payload)
-    } else {
-        String::new()
-    };
-    (cmd, content)
 }
 
 /// Encode a `u16` value (in tenths of a degree C) as 2-byte little-endian hex.

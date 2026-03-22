@@ -43,12 +43,6 @@ crossterm = "0.29"
 # System metrics
 sysinfo = "0.38"
 
-# Image processing
-image = { version = "0.25", default-features = false, features = [
-  "jpeg",
-  "png",
-] }
-
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
@@ -58,7 +52,6 @@ dirs = "6"
 
 # Error handling
 anyhow = "1"
-thiserror = "2"
 
 # Hex encoding/decoding
 hex = "0.4"

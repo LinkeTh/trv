@@ -1,10 +1,6 @@
-/// Protocol constants: show ID offsets, encoding sets, display dimensions.
+/// Protocol constants: show ID offsets and encoding sets.
 use std::collections::HashMap;
 use std::sync::LazyLock;
-
-/// Display resolution (484 wide × 480 tall).
-pub const DISPLAY_WIDTH: u32 = 484;
-pub const DISPLAY_HEIGHT: u32 = 480;
 
 /// Fixed widget hex length (494 hex chars = 247 bytes per widget in cmd 3A).
 pub const WIDGET_HEX_LEN: usize = 494;
@@ -110,25 +106,6 @@ pub fn encode_show_value(show: &str, value: f64) -> Result<String, String> {
     use crate::protocol::frame::encode_unsigned_le;
     let bytes = encode_unsigned_le(raw, byte_len);
     Ok(hex::encode_upper(bytes))
-}
-
-/// Default metric source for a given show ID (used by --theme-auto-metrics).
-pub fn show_default_source(show: &str) -> &'static str {
-    match show {
-        "00" => "cpu_temp",
-        "01" => "cpu_temp",
-        "02" => "cpu_temp",
-        "04" => "cpu_temp",
-        "05" => "cpu_usage",
-        "06" => "mem_usage",
-        "07" => "cpu_usage",
-        "09" => "cpu_usage",
-        "0A" => "cpu_usage",
-        "0B" => "mem_usage",
-        "0D" => "gpu_temp",
-        "0E" => "gpu_usage",
-        _ => "fixed:0",
-    }
 }
 
 #[cfg(test)]
