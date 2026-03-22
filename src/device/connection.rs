@@ -33,17 +33,33 @@ pub const INTER_FRAME_DELAY: Duration = Duration::from_millis(50);
 /// A valid reply must contain at least: magic(2) + length(2) + SN(1) + CMD(1) = 6 bytes.
 const AAF5_REPLY_MIN_LEN: usize = 6;
 
-/// Return `true` if `data` looks like a valid AAF5 reply frame.
+/// Return `true` if `data` looks like an expected device reply.
 ///
 /// A valid reply starts with the `AA F5` magic bytes and is at least
-/// `AAF5_REPLY_MIN_LEN` bytes long.  Non-conforming replies are logged at
-/// `warn` level once per call; they are treated as informational (the daemon
-/// continues normally) since some firmware versions do not send a reply at all.
+/// `AAF5_REPLY_MIN_LEN` bytes long.
+///
+/// Some firmware builds also emit one-byte ASCII status codes (for example
+/// `0x30` / `'0'`) instead of framed AAF5 responses. Those are treated as
+/// expected and logged at `debug` level.
+///
+/// Unexpected non-empty, non-ASCII replies are logged at `warn` level once per
+/// call; they are treated as informational (the daemon continues normally)
+/// since some firmware versions do not send a reply at all.
 fn is_valid_aaf5_reply(data: &[u8]) -> bool {
     if data.is_empty() {
         // Timeout — no reply; acceptable per protocol docs.
         return true;
     }
+
+    if data.len() == 1 && data[0].is_ascii() {
+        tracing::debug!(
+            "device returned 1-byte ASCII status reply: 0x{:02X} ('{}')",
+            data[0],
+            data[0] as char
+        );
+        return true;
+    }
+
     if data.len() < AAF5_REPLY_MIN_LEN || data[0] != 0xAA || data[1] != 0xF5 {
         tracing::warn!(
             "unexpected device reply (len={}, prefix={:02X?}): not a valid AAF5 frame",
