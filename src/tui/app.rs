@@ -7,7 +7,7 @@
 /// - Properties editor (field cursor + inline TextInput)
 /// - Add-widget / Delete-confirm / Save / Open overlay popups
 /// - Push-to-device (background worker + status updates)
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,14 +16,21 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
-use ratatui_explorer::{FileExplorer, FileExplorerBuilder, Input as ExplorerInput};
+use ratatui::{
+    style::{Modifier, Style},
+    widgets::HighlightSpacing,
+};
+use ratatui_explorer::{
+    FileExplorer, FileExplorerBuilder, Input as ExplorerInput, Theme as ExplorerTheme,
+};
 
-use crate::theme::model::{MetricSource, Theme, TimeFormat, Widget, WidgetKind};
+use crate::theme::model::{MetricSource, Theme, ThemeMeta, TimeFormat, Widget, WidgetKind};
 use crate::theme::toml::{load_theme_file, save_theme_file};
 
 use super::event::MetricsSnapshot;
 use super::fields::{Field, FieldType, apply_field, widget_fields};
 use super::input::{InputResult, TextInput};
+use super::palette;
 
 pub const COLOR_PALETTE_COLUMNS: usize = 8;
 pub const COLOR_PALETTE: &[&str] = &[
@@ -37,6 +44,14 @@ pub const COLOR_PALETTE: &[&str] = &[
 
 pub const LOG_VISIBLE_ROWS: usize = 5;
 const LOG_HISTORY_CAPACITY: usize = 512;
+const METRIC_HISTORY_CAPACITY: usize = 64;
+const METRIC_KEYS: [&str; 5] = [
+    "cpu_temp",
+    "cpu_usage",
+    "mem_usage",
+    "gpu_temp",
+    "gpu_usage",
+];
 
 const ROTATION_CODES: [crate::protocol::cmd::OrientationCode; 4] = [
     crate::protocol::cmd::OrientationCode::Raw0,
@@ -138,9 +153,13 @@ pub enum Overlay {
     DeleteConfirm {
         idx: usize,
     },
+    /// New theme dialog — filename + meta fields
+    NewTheme {
+        state: Box<NewThemeDialogState>,
+    },
     /// Save-as dialog — holds the path input
     Save {
-        input: TextInput,
+        state: Box<SaveDialogState>,
     },
     /// Open dialog — file explorer state.
     Open {
@@ -151,6 +170,23 @@ pub enum Overlay {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenDialogState {
     pub explorer: FileExplorer,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewThemeDialogState {
+    pub file_input: TextInput,
+    pub name_input: TextInput,
+    pub description_input: TextInput,
+    pub active_field: usize,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveDialogState {
+    pub explorer: FileExplorer,
+    pub path_input: TextInput,
+    pub input_active: bool,
     pub error: Option<String>,
 }
 
@@ -242,6 +278,9 @@ pub struct App {
     // ── Live metrics ──────────────────────────────────────────────────────────
     /// Most recent metrics snapshot from the background poller.
     pub metrics: MetricsSnapshot,
+
+    /// Rolling history used by sparkline previews in the metrics panel.
+    pub metric_history: HashMap<String, VecDeque<u64>>,
 }
 
 impl App {
@@ -281,8 +320,10 @@ impl App {
             port,
             recv_timeout_ms,
             metrics: MetricsSnapshot {
-                values: std::collections::HashMap::new(),
+                values: HashMap::new(),
+                samples: HashMap::new(),
             },
+            metric_history: HashMap::new(),
         };
         app.log_event("TUI started");
         app
@@ -358,6 +399,29 @@ impl App {
         }
     }
 
+    pub fn update_metrics(&mut self, snapshot: MetricsSnapshot) {
+        for key in METRIC_KEYS {
+            let sample = snapshot
+                .samples
+                .get(key)
+                .copied()
+                .map(|raw| metric_value_to_spark_sample(key, raw))
+                .unwrap_or(0.0);
+            let value = sample.round().clamp(0.0, 100.0) as u64;
+
+            let history = self
+                .metric_history
+                .entry(key.to_string())
+                .or_insert_with(|| VecDeque::with_capacity(METRIC_HISTORY_CAPACITY));
+            if history.len() >= METRIC_HISTORY_CAPACITY {
+                history.pop_front();
+            }
+            history.push_back(value);
+        }
+
+        self.metrics = snapshot;
+    }
+
     /// Number of editable fields for the currently selected widget.
     pub fn field_count(&self) -> usize {
         self.selected_widget_ref()
@@ -394,6 +458,10 @@ impl App {
             }
             Overlay::DeleteConfirm { .. } => {
                 self.handle_delete_confirm_key(key);
+                return;
+            }
+            Overlay::NewTheme { .. } => {
+                self.handle_new_theme_key(key);
                 return;
             }
             Overlay::Save { .. } => {
@@ -436,7 +504,14 @@ impl App {
                 self.begin_open();
                 return;
             }
-            KeyCode::Char('p') | KeyCode::Char('P') if self.prop_input.is_none() => {
+            KeyCode::Char('n') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.begin_new_theme();
+                return;
+            }
+            KeyCode::Char('p') | KeyCode::Char('P')
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+            {
                 self.push_to_device();
                 return;
             }
@@ -493,8 +568,18 @@ impl App {
         }
 
         match &mut self.overlay {
-            Overlay::Save { input } => {
-                input.insert_str(&pasted);
+            Overlay::NewTheme { state } => {
+                match state.active_field {
+                    0 => state.file_input.insert_str(&pasted),
+                    1 => state.name_input.insert_str(&pasted),
+                    2 => state.description_input.insert_str(&pasted),
+                    _ => {}
+                }
+                state.error = None;
+            }
+            Overlay::Save { state } => {
+                state.path_input.insert_str(&pasted);
+                state.input_active = true;
             }
             Overlay::ColorPicker {
                 input,
@@ -1118,61 +1203,290 @@ impl App {
         }
     }
 
-    // ── Save overlay ──────────────────────────────────────────────────────────
+    // ── New-theme overlay ─────────────────────────────────────────────────────
 
-    fn begin_save(&mut self) {
-        let initial = self
-            .theme_path
-            .as_deref()
-            .and_then(|p| p.to_str())
-            .unwrap_or("")
-            .to_string();
-        self.overlay = Overlay::Save {
-            input: TextInput::new(initial),
+    fn begin_new_theme(&mut self) {
+        let state = self.build_new_theme_dialog_state();
+        self.overlay = Overlay::NewTheme {
+            state: Box::new(state),
         };
-        self.log_event("Save dialog opened");
+        self.log_event("New theme dialog opened");
     }
 
-    fn handle_save_key(&mut self, key: KeyEvent) {
-        let result = if let Overlay::Save { ref mut input } = self.overlay {
-            input.handle_key(key)
-        } else {
-            return;
-        };
+    fn build_new_theme_dialog_state(&self) -> NewThemeDialogState {
+        let file_path = default_new_theme_path(self.theme_path.as_deref());
+        NewThemeDialogState {
+            file_input: TextInput::new(file_path.display().to_string()),
+            name_input: TextInput::new("New Theme"),
+            description_input: TextInput::new(""),
+            active_field: 0,
+            error: None,
+        }
+    }
 
-        match result {
-            InputResult::Pending => {}
-            InputResult::Cancelled => {
-                self.overlay = Overlay::None;
-                self.log_event("Save dialog cancelled");
-            }
-            InputResult::Confirmed => {
-                let path_str = if let Overlay::Save { ref input } = self.overlay {
-                    input.value.clone()
-                } else {
-                    return;
-                };
-                self.overlay = Overlay::None;
+    fn handle_new_theme_key(&mut self, key: KeyEvent) {
+        let mut close_overlay = false;
+        let mut cancelled = false;
+        let mut create_request: Option<(PathBuf, String, String)> = None;
 
-                if !path_str.is_empty() {
-                    let path = expand_tilde_path(&path_str);
-                    self.log_event(format!("Saving theme to {}", path.display()));
-                    if let Some(theme) = &self.theme {
-                        match save_theme_file(theme, &path) {
-                            Ok(()) => {
-                                self.theme_path = Some(path);
-                                self.dirty = false;
-                                self.push_status = PushStatus::SaveOk;
-                                if let Some(saved_path) = self.theme_path.as_deref() {
-                                    self.log_event(format!("Saved theme {}", saved_path.display()));
+        if let Overlay::NewTheme { state } = &mut self.overlay {
+            state.error = None;
+
+            match key.code {
+                KeyCode::Esc => {
+                    close_overlay = true;
+                    cancelled = true;
+                }
+                KeyCode::BackTab => {
+                    state.active_field = state.active_field.saturating_add(2) % 3;
+                }
+                KeyCode::Tab if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                    state.active_field = state.active_field.saturating_add(2) % 3;
+                }
+                KeyCode::Tab => {
+                    state.active_field = (state.active_field + 1) % 3;
+                }
+                KeyCode::Up => {
+                    state.active_field = state.active_field.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    if state.active_field < 2 {
+                        state.active_field += 1;
+                    }
+                }
+                _ => {
+                    let input = match state.active_field {
+                        0 => &mut state.file_input,
+                        1 => &mut state.name_input,
+                        _ => &mut state.description_input,
+                    };
+
+                    match input.handle_key(key) {
+                        InputResult::Pending => {}
+                        InputResult::Cancelled => {
+                            close_overlay = true;
+                            cancelled = true;
+                        }
+                        InputResult::Confirmed => {
+                            if state.active_field < 2 {
+                                state.active_field += 1;
+                            } else {
+                                let raw_file = state.file_input.value.trim();
+                                if raw_file.is_empty() {
+                                    state.error = Some("enter a theme filename".to_string());
+                                } else {
+                                    let file_path = normalize_theme_file_path(raw_file);
+                                    let name = if state.name_input.value.trim().is_empty() {
+                                        default_theme_name_from_path(&file_path)
+                                    } else {
+                                        state.name_input.value.trim().to_string()
+                                    };
+                                    let description =
+                                        state.description_input.value.trim().to_string();
+                                    create_request = Some((file_path, name, description));
                                 }
-                            }
-                            Err(e) => {
-                                self.log_event(format!("Save failed: {}", e));
-                                self.push_status = PushStatus::Err(format!("save: {}", e));
                             }
                         }
                     }
+                }
+            }
+        } else {
+            return;
+        }
+
+        if let Some((path, name, description)) = create_request {
+            match self.create_new_theme(path.clone(), name, description) {
+                Ok(()) => {
+                    self.overlay = Overlay::None;
+                }
+                Err(e) => {
+                    if let Overlay::NewTheme { state } = &mut self.overlay {
+                        state.error = Some(e);
+                    }
+                }
+            }
+            return;
+        }
+
+        if close_overlay {
+            self.overlay = Overlay::None;
+            if cancelled {
+                self.log_event("New theme dialog cancelled");
+            }
+        }
+    }
+
+    fn create_new_theme(
+        &mut self,
+        file_path: PathBuf,
+        name: String,
+        description: String,
+    ) -> Result<(), String> {
+        self.log_event(format!("Creating new theme {}", file_path.display()));
+
+        let theme = Theme {
+            meta: ThemeMeta { name, description },
+            widgets: Vec::new(),
+        };
+
+        save_theme_file(&theme, &file_path).map_err(|e| format!("creating theme file {}", e))?;
+
+        self.theme = Some(theme);
+        self.theme_path = Some(file_path.clone());
+        self.selected_widget = None;
+        self.focus = Focus::Sidebar;
+        self.prop_cursor = 0;
+        self.prop_input = None;
+        self.prop_error = None;
+        self.dirty = false;
+        self.push_status = PushStatus::SaveOk;
+
+        self.log_event(format!("Created theme {}", file_path.display()));
+        Ok(())
+    }
+
+    // ── Save overlay ──────────────────────────────────────────────────────────
+
+    fn begin_save(&mut self) {
+        match self.build_save_dialog_state() {
+            Ok(state) => {
+                let cwd = state.explorer.cwd().display().to_string();
+                self.overlay = Overlay::Save {
+                    state: Box::new(state),
+                };
+                self.log_event(format!("Save dialog started at {}", cwd));
+            }
+            Err(e) => {
+                self.push_status = PushStatus::Err(format!("save dialog: {}", e));
+                self.log_event(format!("Save dialog failed: {}", e));
+            }
+        }
+    }
+
+    fn handle_save_key(&mut self, key: KeyEvent) {
+        let mut close_overlay = false;
+        let mut cancelled = false;
+        let mut save_target: Option<PathBuf> = None;
+
+        if let Overlay::Save { state } = &mut self.overlay {
+            state.error = None;
+
+            if key.code == KeyCode::Esc {
+                close_overlay = true;
+                cancelled = true;
+            } else if key.code == KeyCode::Tab {
+                state.input_active = !state.input_active;
+            } else if state.input_active {
+                match state.path_input.handle_key(key) {
+                    InputResult::Pending => {}
+                    InputResult::Cancelled => {
+                        state.input_active = false;
+                    }
+                    InputResult::Confirmed => {
+                        let raw = state.path_input.value.trim();
+                        if raw.is_empty() {
+                            state.error = Some("enter a file path".to_string());
+                        } else {
+                            save_target = Some(expand_tilde_path(raw));
+                            close_overlay = true;
+                        }
+                    }
+                }
+            } else {
+                match key.code {
+                    KeyCode::Backspace => {
+                        if let Err(e) = state.explorer.handle(ExplorerInput::Left) {
+                            state.error = Some(format!("navigate: {}", e));
+                        }
+                    }
+                    KeyCode::Enter => {
+                        let current = state.explorer.current().clone();
+                        if current.is_dir {
+                            if let Err(e) = state.explorer.handle(ExplorerInput::Right) {
+                                state.error = Some(format!("navigate: {}", e));
+                            }
+                        } else {
+                            state.path_input = TextInput::new(current.path.display().to_string());
+                            state.input_active = true;
+                        }
+                    }
+                    _ => {
+                        if let Some(input) = explorer_input_from_key(key)
+                            && let Err(e) = state.explorer.handle(input)
+                        {
+                            state.error = Some(format!("navigate: {}", e));
+                        }
+                    }
+                }
+            }
+        } else {
+            return;
+        }
+
+        if close_overlay {
+            self.overlay = Overlay::None;
+            if cancelled {
+                self.log_event("Save dialog cancelled");
+            }
+        }
+
+        if let Some(path) = save_target {
+            self.save_theme_to_path(path);
+        }
+    }
+
+    fn build_save_dialog_state(&self) -> Result<SaveDialogState, String> {
+        let mut builder = FileExplorerBuilder::default()
+            .show_hidden(false)
+            .theme(build_explorer_theme())
+            .filter_map(|file| {
+                if file.is_dir || is_toml_path(&file.path) {
+                    Some(file)
+                } else {
+                    None
+                }
+            });
+
+        let initial_path = self
+            .theme_path
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("theme.toml"));
+
+        if initial_path.exists() {
+            builder = builder.working_file(initial_path.clone());
+        } else if let Some(parent) = initial_path.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            builder = builder.working_dir(parent.to_path_buf());
+        }
+
+        let explorer = builder
+            .build()
+            .map_err(|e| format!("failed to initialize save explorer: {}", e))?;
+
+        Ok(SaveDialogState {
+            explorer,
+            path_input: TextInput::new(initial_path.display().to_string()),
+            input_active: false,
+            error: None,
+        })
+    }
+
+    fn save_theme_to_path(&mut self, path: PathBuf) {
+        self.log_event(format!("Saving theme to {}", path.display()));
+        if let Some(theme) = &self.theme {
+            match save_theme_file(theme, &path) {
+                Ok(()) => {
+                    self.theme_path = Some(path);
+                    self.dirty = false;
+                    self.push_status = PushStatus::SaveOk;
+                    if let Some(saved_path) = self.theme_path.as_deref() {
+                        self.log_event(format!("Saved theme {}", saved_path.display()));
+                    }
+                }
+                Err(e) => {
+                    self.log_event(format!("Save failed: {}", e));
+                    self.push_status = PushStatus::Err(format!("save: {}", e));
                 }
             }
         }
@@ -1253,6 +1567,7 @@ impl App {
     fn build_open_dialog_state(&self) -> Result<OpenDialogState, String> {
         let mut builder = FileExplorerBuilder::default()
             .show_hidden(false)
+            .theme(build_explorer_theme())
             .filter_map(|file| {
                 if file.is_dir || is_toml_path(&file.path) {
                     Some(file)
@@ -1574,10 +1889,74 @@ fn expand_tilde_path(raw: &str) -> PathBuf {
     PathBuf::from(raw)
 }
 
+fn default_new_theme_path(current_theme_path: Option<&Path>) -> PathBuf {
+    if let Some(path) = current_theme_path
+        && let Some(parent) = path.parent()
+    {
+        return parent.join("new_theme.toml");
+    }
+
+    if let Ok(Some(default_path)) = crate::config::get_default_theme_path()
+        && let Some(parent) = default_path.parent()
+    {
+        return parent.join("new_theme.toml");
+    }
+
+    let config_dir = dirs::config_dir().unwrap_or_else(|| PathBuf::from("."));
+    config_dir.join("trv").join("themes").join("new_theme.toml")
+}
+
+fn normalize_theme_file_path(raw: &str) -> PathBuf {
+    let mut path = expand_tilde_path(raw.trim());
+    if !is_toml_path(&path) {
+        path.set_extension("toml");
+    }
+    path
+}
+
+fn default_theme_name_from_path(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .map(|name| name.replace(['_', '-'], " "))
+        .unwrap_or_else(|| "New Theme".to_string())
+}
+
+fn build_explorer_theme() -> ExplorerTheme {
+    ExplorerTheme::new()
+        .with_style(Style::default().fg(palette::TEXT))
+        .with_item_style(Style::default().fg(palette::TEXT))
+        .with_dir_style(Style::default().fg(palette::PEACH))
+        .with_highlight_item_style(
+            Style::default()
+                .fg(palette::CRUST)
+                .bg(palette::BLUE)
+                .add_modifier(Modifier::BOLD),
+        )
+        .with_highlight_dir_style(
+            Style::default()
+                .fg(palette::CRUST)
+                .bg(palette::SAPPHIRE)
+                .add_modifier(Modifier::BOLD),
+        )
+        .with_highlight_symbol("> ")
+        .with_highlight_spacing(HighlightSpacing::Always)
+}
+
+fn metric_value_to_spark_sample(key: &str, value: f64) -> f64 {
+    match key {
+        "cpu_usage" | "gpu_usage" | "mem_usage" => value.clamp(0.0, 100.0),
+        "cpu_temp" | "gpu_temp" => ((value / 120.0) * 100.0).clamp(0.0, 100.0),
+        _ => value.clamp(0.0, 100.0),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     use crate::theme::model::ThemeMeta;
 
@@ -1825,5 +2204,117 @@ mod tests {
         assert!(is_toml_path(Path::new("/tmp/theme.toml")));
         assert!(is_toml_path(Path::new("/tmp/theme.TOML")));
         assert!(!is_toml_path(Path::new("/tmp/theme.txt")));
+    }
+
+    #[test]
+    fn explorer_theme_makes_selection_visible() {
+        let theme = build_explorer_theme();
+        assert_eq!(theme.highlight_symbol(), Some("> "));
+        assert_eq!(theme.highlight_spacing(), &HighlightSpacing::Always);
+
+        let highlight_item = *theme.highlight_item_style();
+        let highlight_dir = *theme.highlight_dir_style();
+        assert_eq!(highlight_item.bg, Some(palette::BLUE));
+        assert_eq!(highlight_dir.bg, Some(palette::SAPPHIRE));
+    }
+
+    #[test]
+    fn save_dialog_enter_file_prefills_then_confirms_save_path() {
+        let mut app = App::new(None, None, "127.0.0.1".to_string(), 22222, 1000);
+
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("trv-save-test-{}", nonce));
+        fs::create_dir_all(&root).expect("create temp root");
+        let file_path = root.join("demo.toml");
+        fs::write(&file_path, "").expect("create temp file");
+
+        let state = SaveDialogState {
+            explorer: FileExplorerBuilder::default()
+                .working_file(file_path.clone())
+                .build()
+                .expect("build explorer"),
+            path_input: TextInput::new(""),
+            input_active: false,
+            error: None,
+        };
+        app.overlay = Overlay::Save {
+            state: Box::new(state),
+        };
+
+        app.handle_save_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+
+        match &app.overlay {
+            Overlay::Save { state } => {
+                assert!(state.input_active);
+                assert_eq!(state.path_input.value, file_path.display().to_string());
+            }
+            _ => panic!("save overlay should remain open"),
+        }
+
+        let _ = fs::remove_file(file_path);
+        let _ = fs::remove_dir(root);
+    }
+
+    #[test]
+    fn update_metrics_collects_sparkline_history() {
+        let mut app = App::new(None, None, "127.0.0.1".to_string(), 22222, 1000);
+
+        let mut samples = HashMap::new();
+        samples.insert("cpu_temp".to_string(), 60.0);
+        samples.insert("cpu_usage".to_string(), 25.0);
+        samples.insert("mem_usage".to_string(), 33.0);
+        samples.insert("gpu_temp".to_string(), 48.0);
+        samples.insert("gpu_usage".to_string(), 40.0);
+
+        let mut values = HashMap::new();
+        values.insert("cpu_temp".to_string(), "60.0°C".to_string());
+        values.insert("cpu_usage".to_string(), "25.0%".to_string());
+        values.insert("mem_usage".to_string(), "33.0%".to_string());
+        values.insert("gpu_temp".to_string(), "48°C".to_string());
+        values.insert("gpu_usage".to_string(), "40.0%".to_string());
+
+        app.update_metrics(MetricsSnapshot { values, samples });
+
+        let cpu_usage_hist = app
+            .metric_history
+            .get("cpu_usage")
+            .expect("cpu_usage history present");
+        assert_eq!(cpu_usage_hist.back().copied(), Some(25));
+    }
+
+    #[test]
+    fn ctrl_n_opens_new_theme_dialog() {
+        let mut app = App::new(None, None, "127.0.0.1".to_string(), 22222, 1000);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('n'), KeyModifiers::CONTROL));
+
+        match &app.overlay {
+            Overlay::NewTheme { state } => {
+                assert_eq!(state.active_field, 0);
+                assert!(state.file_input.value.ends_with(".toml"));
+            }
+            _ => panic!("expected new theme overlay"),
+        }
+    }
+
+    #[test]
+    fn uppercase_push_key_still_works() {
+        let mut app = App::new(None, None, "127.0.0.1".to_string(), 22222, 1000);
+
+        app.handle_key(KeyEvent::new(KeyCode::Char('P'), KeyModifiers::empty()));
+
+        assert_eq!(
+            app.push_status,
+            PushStatus::Err("no theme loaded".to_string())
+        );
+    }
+
+    #[test]
+    fn new_theme_dialog_defaults_to_toml_extension() {
+        let path = normalize_theme_file_path("/tmp/my_theme");
+        assert_eq!(path, PathBuf::from("/tmp/my_theme.toml"));
     }
 }

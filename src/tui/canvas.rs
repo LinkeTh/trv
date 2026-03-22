@@ -66,7 +66,7 @@ pub fn render(
 
     let title = if focused { " ● Canvas " } else { " Canvas " };
 
-    let block = Block::default()
+    let mut block = Block::default()
         .title(title)
         .borders(Borders::ALL)
         .border_style(border_style)
@@ -75,6 +75,13 @@ pub fn render(
         } else {
             BorderType::Plain
         });
+
+    if focused {
+        block = block.title_bottom(Line::from(Span::styled(
+            " arrows:move  Shift+arrows:x10  j/k:select ",
+            Style::default().fg(palette::OVERLAY1),
+        )));
+    }
 
     let inner = block.inner(area);
     f.render_widget(block, area);

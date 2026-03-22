@@ -8,23 +8,23 @@
 ///   ┤ Status bar (1 row at bottom)                                    │
 ///
 /// Overlays are rendered on top as centered popups:
-///   Help, AddWidget picker, DeleteConfirm, Save dialog, Open dialog.
+///   Help, AddWidget picker, DeleteConfirm, New theme, Save dialog, Open dialog.
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{
         Block, BorderType, Borders, Clear, FrameExt as _, List, ListItem, ListState, Paragraph,
-        Wrap,
+        Sparkline, Wrap,
     },
 };
 
 use crate::theme::model::{Widget, WidgetKind};
 
 use super::app::{
-    App, COLOR_PALETTE, COLOR_PALETTE_COLUMNS, Focus, LOG_VISIBLE_ROWS, NewWidgetKind,
-    OpenDialogState, Overlay, PushStatus,
+    App, COLOR_PALETTE, COLOR_PALETTE_COLUMNS, Focus, LOG_VISIBLE_ROWS, NewThemeDialogState,
+    NewWidgetKind, OpenDialogState, Overlay, PushStatus, SaveDialogState,
 };
 use super::canvas;
 use super::fields::{Field, FieldType, widget_fields};
@@ -102,7 +102,8 @@ pub fn draw(f: &mut Frame, app: &App) {
             input_active,
         } => draw_color_picker_overlay(f, area, field_name, *cursor, input, *input_active),
         Overlay::DeleteConfirm { idx } => draw_delete_confirm_overlay(f, area, *idx, app),
-        Overlay::Save { input } => draw_path_dialog(f, area, "Save theme as", &input.display()),
+        Overlay::NewTheme { state } => draw_new_theme_overlay(f, area, state),
+        Overlay::Save { state } => draw_save_overlay(f, area, state),
         Overlay::Open { state } => draw_open_overlay(f, area, state),
     }
 }
@@ -118,16 +119,18 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
     } else {
         format!(" Widgets ({}) ", app.widget_count())
     };
-    let block = Block::default()
+    let mut block = Block::default()
         .title(title)
         .borders(Borders::ALL)
         .border_style(border_style)
         .border_type(panel_border_type(focused));
 
-    let hint_line = Line::from(Span::styled(
-        " a:add  d:del  ^↑/↓:reorder",
-        Style::default().fg(palette::OVERLAY1),
-    ));
+    if focused {
+        block = block.title_bottom(Line::from(Span::styled(
+            " ↑↓:select  Enter:edit  a:add  d:del  ^↑/↓:reorder ",
+            Style::default().fg(palette::OVERLAY1),
+        )));
+    }
 
     let inner = block.inner(area);
 
@@ -156,20 +159,8 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
         let mut state = ListState::default();
         state.select(app.selected_widget);
 
-        // Reserve 1 row at the bottom of the inner area for the hint.
-        if inner.height > 1 {
-            let split = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([Constraint::Min(1), Constraint::Length(1)])
-                .split(inner);
-
-            let list = List::new(items).block(block);
-            f.render_stateful_widget(list, area, &mut state);
-            f.render_widget(Paragraph::new(hint_line), split[1]);
-        } else {
-            let list = List::new(items).block(block);
-            f.render_stateful_widget(list, area, &mut state);
-        }
+        let list = List::new(items).block(block);
+        f.render_stateful_widget(list, area, &mut state);
     } else {
         let hint = Paragraph::new(Line::from(Span::styled(
             " No theme loaded\n Use --theme",
@@ -193,11 +184,23 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect) {
     } else {
         " Properties "
     };
-    let block = Block::default()
+    let mut block = Block::default()
         .title(title)
         .borders(Borders::ALL)
         .border_style(border_style)
         .border_type(panel_border_type(focused));
+
+    if focused {
+        let hint = if app.prop_input.is_some() {
+            " Enter:confirm  Esc:cancel "
+        } else {
+            " Enter:edit  Space:toggle  ↑↓:navigate "
+        };
+        block = block.title_bottom(Line::from(Span::styled(
+            hint,
+            Style::default().fg(palette::OVERLAY1),
+        )));
+    }
 
     match app.selected_widget_ref() {
         None => {
@@ -215,8 +218,8 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect) {
             let fields = widget_fields(w);
             let field_count = fields.len();
 
-            // Reserve 1 row at the bottom for either the edit input or an error.
-            let (list_area, footer_area) = if inner.height >= 3 {
+            // Reserve 1 row at the bottom only for validation errors.
+            let (list_area, error_area) = if app.prop_error.is_some() && inner.height >= 3 {
                 let s = Layout::default()
                     .direction(Direction::Vertical)
                     .constraints([Constraint::Min(1), Constraint::Length(1)])
@@ -270,26 +273,11 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect) {
             let list = List::new(lines);
             f.render_stateful_widget(list, list_area, &mut list_state);
 
-            // Footer: validation error or edit hint
-            if let Some(footer) = footer_area {
-                let footer_content = if let Some(err) = &app.prop_error {
-                    Line::from(Span::styled(
-                        format!(" ✖ {}", err),
-                        Style::default().fg(palette::RED),
-                    ))
-                } else if app.prop_input.is_some() {
-                    Line::from(Span::styled(
-                        " Enter:confirm  Esc:cancel",
-                        Style::default().fg(palette::OVERLAY1),
-                    ))
-                } else if focused {
-                    Line::from(Span::styled(
-                        " Enter:edit/select  Space:toggle  ↑↓:navigate",
-                        Style::default().fg(palette::OVERLAY1),
-                    ))
-                } else {
-                    Line::from(Span::raw(""))
-                };
+            if let (Some(footer), Some(err)) = (error_area, app.prop_error.as_ref()) {
+                let footer_content = Line::from(Span::styled(
+                    format!(" ✖ {}", err),
+                    Style::default().fg(palette::RED),
+                ));
                 f.render_widget(Paragraph::new(footer_content), footer);
             }
         }
@@ -308,15 +296,37 @@ fn draw_metric_preview_panel(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let mut lines: Vec<Line> = Vec::with_capacity(5);
-    for (label, key) in [
-        (" CPU", "cpu_temp"),
-        (" CPU%", "cpu_usage"),
-        (" MEM%", "mem_usage"),
-        (" GPU", "gpu_temp"),
-        (" GPU%", "gpu_usage"),
-    ] {
-        let (value, value_style) = if let Some(value) = app.metrics.values.get(key) {
+    let metric_rows = [
+        ("CPU", "cpu_temp", palette::PEACH),
+        ("CPU%", "cpu_usage", palette::SAPPHIRE),
+        ("MEM%", "mem_usage", palette::TEAL),
+        ("GPU", "gpu_temp", palette::MAUVE),
+        ("GPU%", "gpu_usage", palette::BLUE),
+    ];
+
+    if inner.height == 0 {
+        return;
+    }
+
+    let constraints: Vec<Constraint> = (0..metric_rows.len())
+        .map(|_| Constraint::Length(1))
+        .collect();
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
+        .split(inner);
+
+    for (row_area, (label, key, color)) in rows.iter().zip(metric_rows.iter()) {
+        if row_area.height == 0 {
+            continue;
+        }
+
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Length(14), Constraint::Min(0)])
+            .split(*row_area);
+
+        let (value, value_style) = if let Some(value) = app.metrics.values.get(*key) {
             (
                 value.as_str(),
                 Style::default()
@@ -327,31 +337,46 @@ fn draw_metric_preview_panel(f: &mut Frame, app: &App, area: Rect) {
             ("--", Style::default().fg(palette::OVERLAY1))
         };
 
-        lines.push(Line::from(vec![
+        let label_line = Line::from(vec![
             Span::styled(
-                format!("{:<6}", label),
+                format!("{:<4}", label),
                 Style::default().fg(palette::SUBTEXT0),
             ),
-            Span::styled(format!(" {}", value), value_style),
-        ]));
-    }
+            Span::styled(format!(" {:>7}", value), value_style),
+            Span::styled(" |", Style::default().fg(palette::OVERLAY1)),
+        ]);
+        f.render_widget(Paragraph::new(label_line), cols[0]);
 
-    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+        if cols[1].width > 0 {
+            let values: Vec<u64> = app
+                .metric_history
+                .get(*key)
+                .map(|history| history.iter().copied().collect())
+                .unwrap_or_else(|| vec![0]);
+            let sparkline = Sparkline::default()
+                .data(values.as_slice())
+                .max(100)
+                .style(Style::default().fg(*color));
+            f.render_widget(sparkline, cols[1]);
+        }
+    }
 }
 
 fn draw_log_panel(f: &mut Frame, app: &App, area: Rect) {
-    let title = if app.log_is_scrolled() {
-        format!(
-            " Log ({}) [scrolled +{}] ",
-            app.log_lines.len(),
-            app.log_scroll
-        )
+    let title = format!(" Log ({}) ", app.log_lines.len());
+
+    let hint = if app.log_is_scrolled() {
+        format!(" PgUp/PgDn:scroll  +{} ", app.log_scroll)
     } else {
-        format!(" Log ({}) ", app.log_lines.len())
+        " PgUp/PgDn:scroll ".to_string()
     };
 
     let block = Block::default()
         .title(title)
+        .title_bottom(Line::from(Span::styled(
+            hint,
+            Style::default().fg(palette::OVERLAY1),
+        )))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(palette::TEAL))
         .border_type(BorderType::Rounded);
@@ -403,31 +428,41 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         PushStatus::Err(e) => Span::styled(format!(" ✖ {} ", e), Style::default().fg(palette::RED)),
     };
 
-    let focus_badge = match app.focus {
-        Focus::Sidebar => " Focus:Sidebar ",
-        Focus::Canvas => " Focus:Canvas ",
-        Focus::Properties => " Focus:Properties ",
+    let focus_name = match app.focus {
+        Focus::Sidebar => "Sidebar",
+        Focus::Canvas => "Canvas",
+        Focus::Properties => "Properties",
     };
 
-    let hints = " Tab:focus  PgUp/PgDn:log  ↑↓/jk:nav  Enter:edit/select  Space:toggle  a:add  d:del  P:push  r:rotate  ^R:auto-rotate  ^S:save  ^O:open  q:quit  ?:help";
+    let hints =
+        " ^n:new  ^s:save  ^o:open  p:push  r:rotate  ^r:auto-rotate  Tab:focus  q:quit  ?:help";
 
     let left = Span::styled(
         theme_indicator,
         Style::default().fg(palette::TEXT).bg(palette::SURFACE0),
     );
-    let focus_span = Span::styled(
+    let hints_span = Span::styled(hints, Style::default().fg(palette::SUBTEXT0));
+    let left_line = Line::from(vec![left, push_part, hints_span]);
+
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Min(1), Constraint::Length(18)])
+        .split(area);
+
+    let left_bar = Paragraph::new(left_line).style(Style::default().bg(palette::BASE));
+    f.render_widget(left_bar, cols[0]);
+
+    let focus_badge = format!(" Focus:{:<10} ", focus_name);
+    let right_bar = Paragraph::new(Line::from(Span::styled(
         focus_badge,
         Style::default()
             .fg(palette::CRUST)
             .bg(palette::TEAL)
             .add_modifier(Modifier::BOLD),
-    );
-    let right = Span::styled(hints, Style::default().fg(palette::SUBTEXT0));
-
-    let spans = vec![left, focus_span, push_part, right];
-
-    let bar = Paragraph::new(Line::from(spans)).style(Style::default().bg(palette::BASE));
-    f.render_widget(bar, area);
+    )))
+    .style(Style::default().bg(palette::BASE))
+    .alignment(Alignment::Right);
+    f.render_widget(right_bar, cols[1]);
 }
 
 // ─── Help overlay ────────────────────────────────────────────────────────────
@@ -456,15 +491,17 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         ("Ctrl+↑ / Ctrl+↓", "Reorder widget in list"),
         ("← ↑ → ↓", "Move widget (canvas, 1px)"),
         ("Shift+arrows", "Move widget (canvas, 10px)"),
-        ("P", "Push theme to device"),
+        ("p", "Push theme to device"),
         ("r", "Cycle raw rotation code (00→01→02→03)"),
-        ("Ctrl+R", "Enable auto-rotation on device"),
-        ("Ctrl+S", "Save theme to file"),
-        ("Ctrl+O", "Open theme explorer (.toml)"),
+        ("Ctrl+n", "Create new theme"),
+        ("Ctrl+r", "Enable auto-rotation on device"),
+        ("Ctrl+s", "Save theme explorer (.toml)"),
+        ("Ctrl+o", "Open theme explorer (.toml)"),
         ("PgUp / PgDn", "Scroll log panel history"),
-        ("Backspace", "Open dialog: parent directory"),
-        (".", "Open dialog: toggle hidden files"),
-        ("q / Ctrl+C", "Quit"),
+        ("Tab (save/open)", "Switch file list/path input"),
+        ("Backspace", "Save/Open dialog: parent directory"),
+        (".", "Save/Open dialog: toggle hidden files"),
+        ("q / Ctrl+c", "Quit"),
         ("F1 / ?", "Toggle this help"),
     ];
 
@@ -708,36 +745,189 @@ fn draw_delete_confirm_overlay(f: &mut Frame, area: Rect, idx: usize, app: &App)
     f.render_widget(p, popup_area);
 }
 
-// ─── Save / Open path dialog ──────────────────────────────────────────────────
+// ─── Save / Open explorer overlays ───────────────────────────────────────────
 
-fn draw_path_dialog(f: &mut Frame, area: Rect, title: &str, input_display: &str) {
-    let popup_w = 60u16.min(area.width.saturating_sub(4));
-    let popup_h = 5u16.min(area.height.saturating_sub(4));
+fn draw_new_theme_overlay(f: &mut Frame, area: Rect, state: &NewThemeDialogState) {
+    let popup_w = 72u16.min(area.width.saturating_sub(4));
+    let popup_h = 11u16.min(area.height.saturating_sub(4));
     let popup_area = centered_rect(popup_w, popup_h, area);
 
     f.render_widget(Clear, popup_area);
 
-    let title = format!(" {} ", title);
     let block = Block::default()
-        .title(title.as_str())
+        .title(" New theme ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(palette::LAVENDER));
-
+        .border_style(Style::default().fg(palette::LAVENDER))
+        .border_type(BorderType::Rounded);
     let inner = block.inner(popup_area);
     f.render_widget(block, popup_area);
 
-    let lines = vec![
-        Line::from(Span::styled(
-            format!(" {}", input_display),
-            Style::default().fg(palette::TEXT),
-        )),
-        Line::from(Span::styled(
-            " Enter:confirm  Esc:cancel",
-            Style::default().fg(palette::OVERLAY1),
-        )),
-    ];
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Min(0),
+        ])
+        .split(inner);
 
-    f.render_widget(Paragraph::new(lines), inner);
+    let file_value = if state.active_field == 0 {
+        state.file_input.display()
+    } else {
+        state.file_input.value.clone()
+    };
+    let name_value = if state.active_field == 1 {
+        state.name_input.display()
+    } else {
+        state.name_input.value.clone()
+    };
+    let desc_value = if state.active_field == 2 {
+        state.description_input.display()
+    } else {
+        state.description_input.value.clone()
+    };
+
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(" File: ", Style::default().fg(palette::SUBTEXT0)),
+            Span::styled(
+                file_value,
+                if state.active_field == 0 {
+                    Style::default().fg(palette::CRUST).bg(palette::BLUE)
+                } else {
+                    Style::default().fg(palette::TEXT)
+                },
+            ),
+        ])),
+        sections[0],
+    );
+
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(" Name: ", Style::default().fg(palette::SUBTEXT0)),
+            Span::styled(
+                name_value,
+                if state.active_field == 1 {
+                    Style::default().fg(palette::CRUST).bg(palette::BLUE)
+                } else {
+                    Style::default().fg(palette::TEXT)
+                },
+            ),
+        ])),
+        sections[1],
+    );
+
+    f.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::styled(" Description: ", Style::default().fg(palette::SUBTEXT0)),
+            Span::styled(
+                desc_value,
+                if state.active_field == 2 {
+                    Style::default().fg(palette::CRUST).bg(palette::BLUE)
+                } else {
+                    Style::default().fg(palette::TEXT)
+                },
+            ),
+        ])),
+        sections[2],
+    );
+
+    f.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            " Enter:next/create  Tab:next field  Shift+Tab:prev  Esc:cancel",
+            Style::default().fg(palette::OVERLAY1),
+        ))),
+        sections[3],
+    );
+
+    if let Some(err) = &state.error {
+        f.render_widget(
+            Paragraph::new(Line::from(Span::styled(
+                format!(" ✖ {}", err),
+                Style::default().fg(palette::RED),
+            ))),
+            sections[4],
+        );
+    }
+}
+
+fn draw_save_overlay(f: &mut Frame, area: Rect, state: &SaveDialogState) {
+    let popup_w = area.width.saturating_sub(8).max(40);
+    let popup_h = area.height.saturating_sub(6).max(12);
+    let popup_area = centered_rect(popup_w, popup_h, area);
+
+    f.render_widget(Clear, popup_area);
+
+    let title = format!(" Save theme — {} ", state.explorer.cwd().display());
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(palette::LAVENDER))
+        .border_type(BorderType::Rounded);
+    let inner = block.inner(popup_area);
+    f.render_widget(block, popup_area);
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    f.render_widget_ref(state.explorer.widget(), sections[0]);
+
+    let selected = state.explorer.current();
+    let selected_style = if selected.is_dir {
+        Style::default().fg(palette::PEACH)
+    } else {
+        Style::default().fg(palette::GREEN)
+    };
+    let selected_line = Line::from(vec![
+        Span::styled(" Selected: ", Style::default().fg(palette::SUBTEXT0)),
+        Span::styled(selected.path.display().to_string(), selected_style),
+    ]);
+    f.render_widget(Paragraph::new(selected_line), sections[1]);
+
+    let input_value = if state.input_active {
+        state.path_input.display()
+    } else {
+        state.path_input.value.clone()
+    };
+    let input_line = Line::from(vec![
+        Span::styled(" Path: ", Style::default().fg(palette::SUBTEXT0)),
+        Span::styled(
+            input_value,
+            if state.input_active {
+                Style::default().fg(palette::CRUST).bg(palette::BLUE)
+            } else {
+                Style::default().fg(palette::TEXT)
+            },
+        ),
+    ]);
+    f.render_widget(Paragraph::new(input_line), sections[2]);
+
+    let footer = if let Some(err) = &state.error {
+        Line::from(Span::styled(
+            format!(" ✖ {}", err),
+            Style::default().fg(palette::RED),
+        ))
+    } else if state.input_active {
+        Line::from(Span::styled(
+            " Enter:save  Tab:list  Esc:cancel",
+            Style::default().fg(palette::OVERLAY1),
+        ))
+    } else {
+        Line::from(Span::styled(
+            " Enter:pick/open dir  Backspace:parent  .:hidden  Tab:path  Esc:cancel",
+            Style::default().fg(palette::OVERLAY1),
+        ))
+    };
+    f.render_widget(Paragraph::new(footer), sections[3]);
 }
 
 fn draw_open_overlay(f: &mut Frame, area: Rect, state: &OpenDialogState) {

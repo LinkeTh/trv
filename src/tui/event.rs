@@ -37,6 +37,8 @@ const METRICS_RATE: Duration = Duration::from_millis(1_000);
 pub struct MetricsSnapshot {
     /// Map from `MetricSource` debug label → formatted string (e.g. "42.3°C").
     pub values: HashMap<String, String>,
+    /// Raw numeric samples for graphing/sparkline previews.
+    pub samples: HashMap<String, f64>,
 }
 
 /// Events sent on the channel from the input/tick threads to the main loop.
@@ -135,19 +137,22 @@ pub fn spawn_event_threads() -> (Sender<Event>, Receiver<Event>, Arc<AtomicBool>
 
             // Format values into human-readable strings.
             let values: HashMap<String, String> = raw
-                .into_iter()
+                .iter()
                 .map(|(k, v)| {
                     let s = match k.as_str() {
-                        "cpu_temp" => format!("{:.1}°C", v),
-                        "gpu_temp" => format!("{:.0}°C", v),
-                        "cpu_usage" | "gpu_usage" | "mem_usage" => format!("{:.1}%", v),
-                        _ => format!("{:.1}", v),
+                        "cpu_temp" => format!("{:.1}°C", *v),
+                        "gpu_temp" => format!("{:.0}°C", *v),
+                        "cpu_usage" | "gpu_usage" | "mem_usage" => format!("{:.1}%", *v),
+                        _ => format!("{:.1}", *v),
                     };
-                    (k, s)
+                    (k.clone(), s)
                 })
                 .collect();
 
-            let snapshot = MetricsSnapshot { values };
+            let snapshot = MetricsSnapshot {
+                values,
+                samples: raw,
+            };
             if tx_metrics.send(Event::MetricsUpdate(snapshot)).is_err() {
                 break;
             }
@@ -187,7 +192,7 @@ pub fn run_loop(
             Event::Resize(_, _) => {}
             Event::Tick => {}
             Event::MetricsUpdate(snapshot) => {
-                app.metrics = snapshot;
+                app.update_metrics(snapshot);
             }
         }
 
@@ -199,7 +204,7 @@ pub fn run_loop(
                 Event::Mouse(m) => app.handle_mouse(m),
                 Event::Resize(_, _) => {}
                 Event::Tick => {}
-                Event::MetricsUpdate(snapshot) => app.metrics = snapshot,
+                Event::MetricsUpdate(snapshot) => app.update_metrics(snapshot),
             }
 
             if app.should_quit {
