@@ -28,7 +28,7 @@ use crate::theme::model::{MetricSource, Theme, ThemeMeta, TimeFormat, Widget, Wi
 use crate::theme::toml::{load_theme_file, save_theme_file};
 
 use super::event::MetricsSnapshot;
-use super::fields::{Field, FieldType, apply_field, widget_fields};
+use super::fields::{Field, FieldType, MediaPathKind, apply_field, widget_fields};
 use super::input::{InputResult, TextInput};
 use super::palette;
 
@@ -165,6 +165,10 @@ pub enum Overlay {
     Open {
         state: Box<OpenDialogState>,
     },
+    /// Media path picker used by image/video widget `path` fields.
+    MediaPath {
+        state: Box<MediaPathDialogState>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -187,6 +191,14 @@ pub struct SaveDialogState {
     pub explorer: FileExplorer,
     pub path_input: TextInput,
     pub input_active: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MediaPathDialogState {
+    pub explorer: FileExplorer,
+    pub field_name: &'static str,
+    pub media_kind: MediaPathKind,
     pub error: Option<String>,
 }
 
@@ -473,6 +485,10 @@ impl App {
             }
             Overlay::Open { .. } => {
                 self.handle_open_key(key);
+                return;
+            }
+            Overlay::MediaPath { .. } => {
+                self.handle_media_path_key(key);
                 return;
             }
         }
@@ -873,6 +889,9 @@ impl App {
                 self.prop_input = Some(TextInput::new(&field.value));
                 self.prop_error = None;
             }
+            FieldType::MediaPath(kind) => {
+                self.begin_media_path_picker(&field, kind);
+            }
             FieldType::Toggle => {
                 self.toggle_field(&field);
             }
@@ -924,6 +943,26 @@ impl App {
             input_active: false,
         };
         self.prop_error = None;
+    }
+
+    fn begin_media_path_picker(&mut self, field: &Field, media_kind: MediaPathKind) {
+        match self.build_media_path_dialog_state(field.name, media_kind, &field.value) {
+            Ok(state) => {
+                let cwd = state.explorer.cwd().display().to_string();
+                self.overlay = Overlay::MediaPath {
+                    state: Box::new(state),
+                };
+                self.prop_error = None;
+                self.log_event(format!(
+                    "{} path picker opened at {}",
+                    media_kind.title_name(),
+                    cwd
+                ));
+            }
+            Err(e) => {
+                self.prop_error = Some(format!("{} path picker: {}", media_kind.display_name(), e));
+            }
+        }
     }
 
     fn apply_field_value(&mut self, field_name: &'static str, value: &str) {
@@ -1656,6 +1695,123 @@ impl App {
         })
     }
 
+    fn handle_media_path_key(&mut self, key: KeyEvent) {
+        let mut close_overlay = false;
+        let mut cancelled = false;
+        let mut picked_value: Option<(&'static str, String, MediaPathKind)> = None;
+
+        if let Overlay::MediaPath { state } = &mut self.overlay {
+            state.error = None;
+
+            match key.code {
+                KeyCode::Esc => {
+                    close_overlay = true;
+                    cancelled = true;
+                }
+                KeyCode::Backspace => {
+                    if let Err(e) = state.explorer.handle(ExplorerInput::Left) {
+                        state.error = Some(format!("navigate: {}", e));
+                    }
+                }
+                KeyCode::Enter => {
+                    let current = state.explorer.current().clone();
+                    if current.is_dir {
+                        if let Err(e) = state.explorer.handle(ExplorerInput::Right) {
+                            state.error = Some(format!("navigate: {}", e));
+                        }
+                    } else {
+                        let absolute = absolutize_path(current.path);
+                        picked_value = Some((
+                            state.field_name,
+                            absolute.display().to_string(),
+                            state.media_kind,
+                        ));
+                        close_overlay = true;
+                    }
+                }
+                _ => {
+                    if let Some(input) = explorer_input_from_key(key)
+                        && let Err(e) = state.explorer.handle(input)
+                    {
+                        state.error = Some(format!("navigate: {}", e));
+                    }
+                }
+            }
+        } else {
+            return;
+        }
+
+        if close_overlay {
+            self.overlay = Overlay::None;
+            if cancelled {
+                self.log_event("Media path picker cancelled");
+            }
+        }
+
+        if let Some((field_name, value, media_kind)) = picked_value {
+            self.apply_field_value(field_name, &value);
+            if self.prop_error.is_none() {
+                self.log_event(format!(
+                    "{} path selected {}",
+                    media_kind.title_name(),
+                    value
+                ));
+            }
+        }
+    }
+
+    fn build_media_path_dialog_state(
+        &self,
+        field_name: &'static str,
+        media_kind: MediaPathKind,
+        current_value: &str,
+    ) -> Result<MediaPathDialogState, String> {
+        let mut builder = FileExplorerBuilder::default()
+            .show_hidden(false)
+            .theme(build_explorer_theme())
+            .filter_map(move |file| {
+                if file.is_dir || is_media_path(&file.path, media_kind) {
+                    Some(file)
+                } else {
+                    None
+                }
+            });
+
+        let mut initial_file: Option<PathBuf> = None;
+        if !current_value.trim().is_empty() {
+            let expanded = expand_tilde_path(current_value.trim());
+            let absolute = absolutize_path(expanded);
+            if absolute.exists() {
+                if absolute.is_file() {
+                    initial_file = Some(absolute.clone());
+                }
+                builder = builder.working_dir(media_picker_working_dir(&absolute));
+            }
+        }
+
+        if initial_file.is_none()
+            && let Some(path) = self.theme_path.as_ref()
+            && !path.as_os_str().is_empty()
+        {
+            builder = builder.working_dir(media_picker_working_dir(path));
+        }
+
+        if let Some(file_path) = initial_file {
+            builder = builder.working_file(file_path);
+        }
+
+        let explorer = builder
+            .build()
+            .map_err(|e| format!("failed to initialize media path picker: {}", e))?;
+
+        Ok(MediaPathDialogState {
+            explorer,
+            field_name,
+            media_kind,
+            error: None,
+        })
+    }
+
     fn load_theme_from_path(&mut self, path: PathBuf) {
         self.log_event(format!("Opening theme {}", path.display()));
         match load_theme_file(&path) {
@@ -1899,6 +2055,62 @@ fn is_toml_path(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+fn is_media_path(path: &Path, media_kind: MediaPathKind) -> bool {
+    match media_kind {
+        MediaPathKind::Image => is_image_path(path),
+        MediaPathKind::Video => is_video_path(path),
+    }
+}
+
+fn is_image_path(path: &Path) -> bool {
+    const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "webp", "gif", "heic", "heif"];
+    has_extension_in(path, IMAGE_EXTENSIONS)
+}
+
+fn is_video_path(path: &Path) -> bool {
+    const VIDEO_EXTENSIONS: &[&str] = &[
+        "mp4", "mov", "mkv", "avi", "webm", "m4v", "mpg", "mpeg", "wmv",
+    ];
+    has_extension_in(path, VIDEO_EXTENSIONS)
+}
+
+fn has_extension_in(path: &Path, allowed: &[&str]) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| {
+            allowed
+                .iter()
+                .any(|candidate| ext.eq_ignore_ascii_case(candidate))
+        })
+        .unwrap_or(false)
+}
+
+fn media_picker_working_dir(path: &Path) -> PathBuf {
+    if path.is_dir() {
+        return path.to_path_buf();
+    }
+
+    path.parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+        .map(Path::to_path_buf)
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn absolutize_path(path: PathBuf) -> PathBuf {
+    if let Ok(canonical) = path.canonicalize() {
+        return canonical;
+    }
+
+    if path.is_absolute() {
+        return path;
+    }
+
+    std::env::current_dir()
+        .map(|cwd| cwd.join(&path))
+        .unwrap_or_else(|_| path)
+}
+
 fn widget_log_label(widget: &Widget) -> String {
     match &widget.kind {
         WidgetKind::Metric { source, .. } => format!("Metric {:?}", source),
@@ -2052,6 +2264,60 @@ mod tests {
             },
             widgets: vec![test_widget()],
         }
+    }
+
+    fn media_widget(kind: WidgetKind) -> Widget {
+        Widget {
+            kind,
+            x: 10,
+            y: 10,
+            width: 100,
+            height: 40,
+            text_size: 20,
+            color: "FFFFFF".to_string(),
+            alpha: 1.0,
+            bold: false,
+            italic: false,
+            underline: false,
+            strikethrough: false,
+            font: String::new(),
+        }
+    }
+
+    fn app_with_widget(widget: Widget) -> App {
+        App::new(
+            Some(Theme {
+                meta: ThemeMeta {
+                    name: "test".to_string(),
+                    description: String::new(),
+                },
+                widgets: vec![widget],
+            }),
+            None,
+            "127.0.0.1".to_string(),
+            22222,
+            1000,
+        )
+    }
+
+    fn path_field_index(app: &App) -> usize {
+        let widget = app.selected_widget_ref().expect("selected widget");
+        widget_fields(widget)
+            .iter()
+            .position(|field| field.name == "path")
+            .expect("path field")
+    }
+
+    fn create_temp_media_file(ext: &str) -> (PathBuf, PathBuf) {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("trv-media-test-{nonce}"));
+        fs::create_dir_all(&root).expect("create temp root");
+        let file_path = root.join(format!("sample.{ext}"));
+        fs::write(&file_path, b"test").expect("create temp media file");
+        (root, file_path)
     }
 
     #[test]
@@ -2268,6 +2534,123 @@ mod tests {
         assert!(is_toml_path(Path::new("/tmp/theme.toml")));
         assert!(is_toml_path(Path::new("/tmp/theme.TOML")));
         assert!(!is_toml_path(Path::new("/tmp/theme.txt")));
+
+        assert!(is_media_path(
+            Path::new("/tmp/logo.PNG"),
+            MediaPathKind::Image
+        ));
+        assert!(!is_media_path(
+            Path::new("/tmp/logo.mp4"),
+            MediaPathKind::Image
+        ));
+        assert!(is_media_path(
+            Path::new("/tmp/bg.MP4"),
+            MediaPathKind::Video
+        ));
+        assert!(!is_media_path(
+            Path::new("/tmp/bg.webp"),
+            MediaPathKind::Video
+        ));
+    }
+
+    #[test]
+    fn enter_on_image_path_opens_media_path_picker() {
+        let (root, file_path) = create_temp_media_file("png");
+        let mut app = app_with_widget(media_widget(WidgetKind::Image {
+            path: file_path.display().to_string(),
+        }));
+
+        app.focus = Focus::Properties;
+        app.selected_widget = Some(0);
+        app.prop_cursor = path_field_index(&app);
+
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+
+        match &app.overlay {
+            Overlay::MediaPath { state } => {
+                assert_eq!(state.field_name, "path");
+                assert_eq!(state.media_kind, MediaPathKind::Image);
+            }
+            _ => panic!("expected media path overlay"),
+        }
+
+        let _ = fs::remove_file(file_path);
+        let _ = fs::remove_dir(root);
+    }
+
+    #[test]
+    fn media_path_picker_confirm_stores_absolute_path() {
+        let (root, file_path) = create_temp_media_file("mp4");
+        let mut app = app_with_widget(media_widget(WidgetKind::Video {
+            path: String::new(),
+        }));
+
+        let state = MediaPathDialogState {
+            explorer: FileExplorerBuilder::default()
+                .working_file(file_path.clone())
+                .build()
+                .expect("build media explorer"),
+            field_name: "path",
+            media_kind: MediaPathKind::Video,
+            error: None,
+        };
+        app.overlay = Overlay::MediaPath {
+            state: Box::new(state),
+        };
+        app.dirty = false;
+
+        app.handle_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::empty()));
+
+        assert!(matches!(app.overlay, Overlay::None));
+
+        let expected = file_path.canonicalize().expect("canonical temp file");
+        if let WidgetKind::Video { path } = &app.selected_widget_ref().expect("widget").kind {
+            assert_eq!(PathBuf::from(path), expected);
+            assert!(Path::new(path).is_absolute());
+        } else {
+            panic!("expected video widget");
+        }
+        assert!(app.dirty);
+
+        let _ = fs::remove_file(file_path);
+        let _ = fs::remove_dir(root);
+    }
+
+    #[test]
+    fn media_path_picker_cancel_keeps_existing_path() {
+        let (root, file_path) = create_temp_media_file("png");
+        let original = file_path.canonicalize().expect("canonical temp file");
+
+        let mut app = app_with_widget(media_widget(WidgetKind::Image {
+            path: original.display().to_string(),
+        }));
+
+        let state = MediaPathDialogState {
+            explorer: FileExplorerBuilder::default()
+                .working_file(file_path.clone())
+                .build()
+                .expect("build media explorer"),
+            field_name: "path",
+            media_kind: MediaPathKind::Image,
+            error: None,
+        };
+        app.overlay = Overlay::MediaPath {
+            state: Box::new(state),
+        };
+        app.dirty = false;
+
+        app.handle_key(KeyEvent::new(KeyCode::Esc, KeyModifiers::empty()));
+
+        assert!(matches!(app.overlay, Overlay::None));
+        if let WidgetKind::Image { path } = &app.selected_widget_ref().expect("widget").kind {
+            assert_eq!(PathBuf::from(path), original);
+        } else {
+            panic!("expected image widget");
+        }
+        assert!(!app.dirty);
+
+        let _ = fs::remove_file(file_path);
+        let _ = fs::remove_dir(root);
     }
 
     #[test]

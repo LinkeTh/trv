@@ -23,8 +23,8 @@ use ratatui::{
 use crate::theme::model::{Widget, WidgetKind};
 
 use super::app::{
-    App, COLOR_PALETTE, COLOR_PALETTE_COLUMNS, Focus, LOG_VISIBLE_ROWS, NewThemeDialogState,
-    NewWidgetKind, OpenDialogState, Overlay, PushStatus, SaveDialogState,
+    App, COLOR_PALETTE, COLOR_PALETTE_COLUMNS, Focus, LOG_VISIBLE_ROWS, MediaPathDialogState,
+    NewThemeDialogState, NewWidgetKind, OpenDialogState, Overlay, PushStatus, SaveDialogState,
 };
 use super::canvas;
 use super::fields::{Field, FieldType, widget_fields};
@@ -105,6 +105,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         Overlay::NewTheme { state } => draw_new_theme_overlay(f, area, state),
         Overlay::Save { state } => draw_save_overlay(f, area, state),
         Overlay::Open { state } => draw_open_overlay(f, area, state),
+        Overlay::MediaPath { state } => draw_media_path_overlay(f, area, state),
     }
 }
 
@@ -495,6 +496,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         ("Ctrl+r", "Enable auto-rotation on device"),
         ("Ctrl+s", "Save theme explorer (.toml)"),
         ("Ctrl+o", "Open theme explorer (.toml)"),
+        ("Enter (media path)", "Open image/video file chooser"),
         ("PgUp / PgDn", "Scroll log panel history"),
         ("Tab (save/open)", "Switch file list/path input"),
         ("Backspace", "Save/Open dialog: parent directory"),
@@ -975,6 +977,63 @@ fn draw_open_overlay(f: &mut Frame, area: Rect, state: &OpenDialogState) {
     } else {
         Line::from(Span::styled(
             " ⏎:open  Backspace:parent  .:hidden  Esc:cancel",
+            Style::default().fg(palette::OVERLAY1),
+        ))
+    };
+    f.render_widget(Paragraph::new(footer), sections[2]);
+}
+
+fn draw_media_path_overlay(f: &mut Frame, area: Rect, state: &MediaPathDialogState) {
+    let popup_w = area.width.saturating_sub(8).max(40);
+    let popup_h = area.height.saturating_sub(6).max(12);
+    let popup_area = centered_rect(popup_w, popup_h, area);
+
+    f.render_widget(Clear, popup_area);
+
+    let title = format!(
+        " Select {} path — {} ",
+        state.media_kind.display_name(),
+        state.explorer.cwd().display()
+    );
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(palette::LAVENDER))
+        .border_type(BorderType::Rounded);
+    let inner = block.inner(popup_area);
+    f.render_widget(block, popup_area);
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(2),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    f.render_widget_ref(state.explorer.widget(), sections[0]);
+
+    let selected = state.explorer.current();
+    let selected_style = if selected.is_dir {
+        Style::default().fg(palette::PEACH)
+    } else {
+        Style::default().fg(palette::GREEN)
+    };
+    let selected_line = Line::from(vec![
+        Span::styled(" Selected: ", Style::default().fg(palette::SUBTEXT0)),
+        Span::styled(selected.path.display().to_string(), selected_style),
+    ]);
+    f.render_widget(Paragraph::new(selected_line), sections[1]);
+
+    let footer = if let Some(err) = &state.error {
+        Line::from(Span::styled(
+            format!(" ✖ {}", err),
+            Style::default().fg(palette::RED),
+        ))
+    } else {
+        Line::from(Span::styled(
+            " ⏎:pick/open dir  Backspace:parent  .:hidden  Esc:cancel",
             Style::default().fg(palette::OVERLAY1),
         ))
     };

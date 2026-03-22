@@ -31,6 +31,31 @@ pub enum FieldType {
     Toggle,
     /// Colour picker.
     Color,
+    /// File chooser for image/video asset paths.
+    MediaPath(MediaPathKind),
+}
+
+/// Media widget kind for `path` chooser fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MediaPathKind {
+    Image,
+    Video,
+}
+
+impl MediaPathKind {
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Self::Image => "image",
+            Self::Video => "video",
+        }
+    }
+
+    pub fn title_name(self) -> &'static str {
+        match self {
+            Self::Image => "Image",
+            Self::Video => "Video",
+        }
+    }
 }
 
 /// A named field and its current string representation.
@@ -50,7 +75,7 @@ pub fn widget_fields(w: &Widget) -> Vec<Field> {
         return vec![Field {
             name: "path",
             value: path.clone(),
-            kind: FieldType::Text,
+            kind: FieldType::MediaPath(MediaPathKind::Video),
         }];
     }
 
@@ -158,7 +183,7 @@ pub fn widget_fields(w: &Widget) -> Vec<Field> {
             fields.push(Field {
                 name: "path",
                 value: path.clone(),
-                kind: FieldType::Text,
+                kind: FieldType::MediaPath(MediaPathKind::Image),
             });
         }
         WidgetKind::Video { .. } => unreachable!("video fields handled above"),
@@ -455,6 +480,7 @@ mod tests {
         let fields = widget_fields(&w);
         assert_eq!(fields.len(), 1);
         assert_eq!(fields[0].name, "path");
+        assert_eq!(fields[0].kind, FieldType::MediaPath(MediaPathKind::Video));
         let path = fields.iter().find(|f| f.name == "path").unwrap();
         assert_eq!(path.value, "/tmp/bg.mp4");
 
@@ -464,5 +490,33 @@ mod tests {
         } else {
             panic!("wrong kind");
         }
+    }
+
+    #[test]
+    fn image_widget_path_uses_media_path_field_kind() {
+        let w = Widget {
+            kind: WidgetKind::Image {
+                path: "/tmp/logo.png".into(),
+            },
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 50,
+            text_size: 40,
+            color: "FFFFFF".into(),
+            alpha: 1.0,
+            bold: false,
+            italic: false,
+            underline: false,
+            strikethrough: false,
+            font: String::new(),
+        };
+
+        let path_field = widget_fields(&w)
+            .into_iter()
+            .find(|field| field.name == "path")
+            .expect("path field");
+
+        assert_eq!(path_field.kind, FieldType::MediaPath(MediaPathKind::Image));
     }
 }

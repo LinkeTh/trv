@@ -87,6 +87,8 @@ Bottom strip panels:
 | `Enter` | Start editing highlighted field |
 | `Esc` | Cancel the current edit |
 
+For image/video widget `path` fields, `Enter` opens a file chooser instead of inline text editing.
+
 While a field is being edited:
 
 | Key | Action |
@@ -148,6 +150,20 @@ Inside the **Save theme** explorer overlay:
 | `.` | Toggle hidden files |
 | `Esc` | Cancel save dialog |
 
+Inside the **Media path** chooser overlay (image/video widget `path`):
+
+| Key | Action |
+|-----|--------|
+| `↑` / `k` / `↓` / `j` | Move selection |
+| `Home` / `End` | Jump to first / last entry |
+| `PageUp` / `PageDown` | Scroll by page |
+| `Enter` | Enter directory or select file path |
+| `Backspace` / `←` / `h` | Go to parent directory |
+| `.` | Toggle hidden files |
+| `Esc` | Cancel picker |
+
+When a media file is selected, the widget `path` is stored as an absolute host path.
+
 When pushing from the TUI, `trv` auto-pushes local image assets first:
 
 - each image/video widget `path` (local file) → `/sdcard/<basename(path)>`
@@ -197,9 +213,9 @@ Valid values: `hh:mm:ss`, `date`, `weekday`
 
 **Text:**  `content`
 
-**Image:**  `path` (local image file path; daemon/TUI push to `/sdcard/` automatically)
+**Image:**  `path` (picked from file chooser; stored as absolute local host path; daemon/TUI push to `/sdcard/` automatically)
 
-**Video:**  `path` (local video file path; daemon/TUI push to `/sdcard/` automatically)
+**Video:**  `path` (picked from file chooser; stored as absolute local host path; daemon/TUI push to `/sdcard/` automatically)
 
 ### Video widget notes
 

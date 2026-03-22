@@ -143,6 +143,7 @@ systemctl --user disable trv-daemon.service
 ## Keybinds
 
 - Full command usage and keybindings are in `USAGE.md`.
+- In the TUI Properties panel, image/video `path` fields open a file chooser and save as absolute host paths.
 
 ## License
 
