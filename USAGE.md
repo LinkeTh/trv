@@ -103,12 +103,20 @@ Validation errors appear in red at the bottom of the Properties panel.
 | `Ctrl+S` | Save theme — prompts for a file path |
 | `Ctrl+O` | Open theme — prompts for a file path |
 | `p` / `P` | Push current theme to device |
+| `r` / `R` | Cycle raw rotation code (`00 → 01 → 02 → 03`) via cmd38 |
+| `Ctrl+R` | Re-enable device auto-rotation (ADB system setting) |
 
 When pushing from the TUI, `trv` auto-pushes local image assets first:
 
 - each image/video widget `path` (local file) → `/sdcard/<basename(path)>`
 
 Note: device-side theme activation can lag by up to ~10 seconds after push.
+
+Rotation notes:
+
+- `r` sends protocol cmd38 with raw orientation codes in a simple cycle.
+- Raw code meaning can vary by device model/platform (matching vendor behavior).
+- `Ctrl+R` uses `adb shell settings put system accelerometer_rotation 1` to re-enable auto-rotation.
 
 ---
 

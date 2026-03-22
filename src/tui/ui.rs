@@ -277,6 +277,12 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         PushStatus::PushInProgress => {
             Span::styled(" … pushing … ", Style::default().fg(palette::YELLOW))
         }
+        PushStatus::RotateInProgress => {
+            Span::styled(" … rotating … ", Style::default().fg(palette::YELLOW))
+        }
+        PushStatus::RotateOk(msg) => {
+            Span::styled(format!(" ✓ {} ", msg), Style::default().fg(palette::GREEN))
+        }
         PushStatus::PushOk => Span::styled(" ✓ pushed ", Style::default().fg(palette::GREEN)),
         PushStatus::SaveOk => Span::styled(" ✓ saved ", Style::default().fg(palette::GREEN)),
         PushStatus::OpenOk => Span::styled(" ✓ opened ", Style::default().fg(palette::GREEN)),
@@ -301,7 +307,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         }
     }
 
-    let hints = " Tab:focus  ↑↓/jk:nav  Enter:edit/select  Space:toggle  a:add  d:del  P:push  ^S:save  ^O:open  q:quit  ?:help";
+    let hints = " Tab:focus  ↑↓/jk:nav  Enter:edit/select  Space:toggle  a:add  d:del  P:push  r:rotate  ^R:auto-rotate  ^S:save  ^O:open  q:quit  ?:help";
 
     let left = Span::styled(
         theme_indicator,
@@ -344,6 +350,8 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         ("← ↑ → ↓", "Move widget (canvas, 1px)"),
         ("Shift+arrows", "Move widget (canvas, 10px)"),
         ("P", "Push theme to device"),
+        ("r", "Cycle raw rotation code (00→01→02→03)"),
+        ("Ctrl+R", "Enable auto-rotation on device"),
         ("Ctrl+S", "Save theme to file"),
         ("Ctrl+O", "Open theme from file"),
         ("q / Ctrl+C", "Quit"),

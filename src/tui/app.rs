@@ -33,6 +33,14 @@ pub const COLOR_PALETTE: &[&str] = &[
     "#DDB6F2", "#89DDFF", "#ADD7FF", "#C3E88D", "#FFCB6B", "#F78C6C", "#FF5370", "#C792EA",
 ];
 
+const ROTATION_CODES: [u8; 4] = [0x00, 0x01, 0x02, 0x03];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RotationAction {
+    RawCode(u8),
+    EnableAuto,
+}
+
 // ─── Focus ────────────────────────────────────────────────────────────────────
 
 /// The panel that currently has keyboard focus.
@@ -138,6 +146,8 @@ pub enum PushStatus {
     None,
     PushInProgress,
     PushOk,
+    RotateInProgress,
+    RotateOk(String),
     SaveOk,
     OpenOk,
     Err(String),
@@ -193,6 +203,15 @@ pub struct App {
     /// Join handle for the active push worker.
     push_worker: Option<JoinHandle<()>>,
 
+    /// Rotation worker result channel while a rotation op is running.
+    rotate_result_rx: Option<Receiver<Result<String, String>>>,
+
+    /// Join handle for the active rotation worker.
+    rotate_worker: Option<JoinHandle<()>>,
+
+    /// Next raw orientation code index for `r` cycling.
+    next_rotation_code_idx: usize,
+
     // ── Device connection ─────────────────────────────────────────────────────
     pub host: String,
     pub port: u16,
@@ -231,6 +250,9 @@ impl App {
             push_result_rx: None,
             push_cancel: None,
             push_worker: None,
+            rotate_result_rx: None,
+            rotate_worker: None,
+            next_rotation_code_idx: 0,
             host,
             port,
             recv_timeout_ms,
@@ -345,6 +367,17 @@ impl App {
                 self.push_to_device();
                 return;
             }
+            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.enable_auto_rotation();
+                return;
+            }
+            KeyCode::Char('r') | KeyCode::Char('R')
+                if !key.modifiers.contains(KeyModifiers::CONTROL)
+                    && !key.modifiers.contains(KeyModifiers::ALT) =>
+            {
+                self.rotate_next_manual_orientation();
+                return;
+            }
             KeyCode::Tab => {
                 self.focus = self.focus.next();
                 return;
@@ -395,40 +428,65 @@ impl App {
     }
 
     pub fn poll_push_result(&mut self) {
-        let Some(rx) = self.push_result_rx.as_ref() else {
-            return;
-        };
+        if let Some(rx) = self.push_result_rx.as_ref() {
+            match rx.try_recv() {
+                Ok(Ok(())) => {
+                    self.push_status = PushStatus::PushOk;
+                    if let Some(path) = self.theme_path.as_deref()
+                        && let Err(e) = crate::config::set_default_theme_path(path)
+                    {
+                        self.push_status =
+                            PushStatus::Err(format!("pushed, but failed to update config: {}", e));
+                    }
+                    self.push_result_rx = None;
+                    self.push_cancel = None;
+                    if let Some(handle) = self.push_worker.take() {
+                        let _ = handle.join();
+                    }
+                }
+                Ok(Err(e)) => {
+                    self.push_status = PushStatus::Err(e);
+                    self.push_result_rx = None;
+                    self.push_cancel = None;
+                    if let Some(handle) = self.push_worker.take() {
+                        let _ = handle.join();
+                    }
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    self.push_status = PushStatus::Err("push worker disconnected".into());
+                    self.push_result_rx = None;
+                    self.push_cancel = None;
+                    if let Some(handle) = self.push_worker.take() {
+                        let _ = handle.join();
+                    }
+                }
+            }
+        }
 
-        match rx.try_recv() {
-            Ok(Ok(())) => {
-                self.push_status = PushStatus::PushOk;
-                if let Some(path) = self.theme_path.as_deref()
-                    && let Err(e) = crate::config::set_default_theme_path(path)
-                {
-                    self.push_status =
-                        PushStatus::Err(format!("pushed, but failed to update config: {}", e));
+        if let Some(rx) = self.rotate_result_rx.as_ref() {
+            match rx.try_recv() {
+                Ok(Ok(msg)) => {
+                    self.push_status = PushStatus::RotateOk(msg);
+                    self.rotate_result_rx = None;
+                    if let Some(handle) = self.rotate_worker.take() {
+                        let _ = handle.join();
+                    }
                 }
-                self.push_result_rx = None;
-                self.push_cancel = None;
-                if let Some(handle) = self.push_worker.take() {
-                    let _ = handle.join();
+                Ok(Err(e)) => {
+                    self.push_status = PushStatus::Err(e);
+                    self.rotate_result_rx = None;
+                    if let Some(handle) = self.rotate_worker.take() {
+                        let _ = handle.join();
+                    }
                 }
-            }
-            Ok(Err(e)) => {
-                self.push_status = PushStatus::Err(e);
-                self.push_result_rx = None;
-                self.push_cancel = None;
-                if let Some(handle) = self.push_worker.take() {
-                    let _ = handle.join();
-                }
-            }
-            Err(TryRecvError::Empty) => {}
-            Err(TryRecvError::Disconnected) => {
-                self.push_status = PushStatus::Err("push worker disconnected".into());
-                self.push_result_rx = None;
-                self.push_cancel = None;
-                if let Some(handle) = self.push_worker.take() {
-                    let _ = handle.join();
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    self.push_status = PushStatus::Err("rotation worker disconnected".into());
+                    self.rotate_result_rx = None;
+                    if let Some(handle) = self.rotate_worker.take() {
+                        let _ = handle.join();
+                    }
                 }
             }
         }
@@ -440,6 +498,11 @@ impl App {
         }
         self.push_result_rx = None;
         if let Some(handle) = self.push_worker.take() {
+            let _ = handle.join();
+        }
+
+        self.rotate_result_rx = None;
+        if let Some(handle) = self.rotate_worker.take() {
             let _ = handle.join();
         }
     }
@@ -1085,6 +1148,80 @@ impl App {
 
     // ── Push to device ────────────────────────────────────────────────────────
 
+    fn rotate_next_manual_orientation(&mut self) {
+        let (code, next_idx) = next_rotation_code(self.next_rotation_code_idx);
+        self.next_rotation_code_idx = next_idx;
+        self.start_rotation_worker(RotationAction::RawCode(code));
+    }
+
+    fn enable_auto_rotation(&mut self) {
+        self.start_rotation_worker(RotationAction::EnableAuto);
+    }
+
+    fn start_rotation_worker(&mut self, action: RotationAction) {
+        if self.rotate_result_rx.is_some() {
+            self.push_status = PushStatus::Err("rotation already in progress".into());
+            return;
+        }
+
+        if self.push_result_rx.is_some() {
+            self.push_status = PushStatus::Err("push in progress; wait before rotating".into());
+            return;
+        }
+
+        let host = self.host.clone();
+        let port = self.port;
+        let recv_timeout_ms = self.recv_timeout_ms;
+
+        let (tx, rx) = mpsc::channel::<Result<String, String>>();
+        self.rotate_result_rx = Some(rx);
+        self.push_status = PushStatus::RotateInProgress;
+
+        let handle = std::thread::spawn(move || {
+            let result = match action {
+                RotationAction::RawCode(code) => {
+                    let payload = crate::protocol::cmd::build_cmd38_payload(code);
+                    let frame = crate::protocol::frame::build_frame_default(0x38, &payload);
+
+                    let rt = match tokio::runtime::Builder::new_current_thread()
+                        .enable_io()
+                        .enable_time()
+                        .build()
+                    {
+                        Ok(rt) => rt,
+                        Err(e) => {
+                            let _ = tx.send(Err(format!("create runtime: {}", e)));
+                            return;
+                        }
+                    };
+
+                    rt.block_on(async move {
+                        crate::device::connection::send_frame(&host, port, &frame, recv_timeout_ms)
+                            .await
+                            .map_err(|e| format!("sending cmd38: {}", e))?;
+                        Ok(format!("rotation code {:02X} applied", code))
+                    })
+                }
+                RotationAction::EnableAuto => {
+                    if !crate::device::adb::adb_available() {
+                        Err("adb not found in PATH (required for auto-rotation)".into())
+                    } else if !crate::device::adb::adb_settings_put_system(
+                        "accelerometer_rotation",
+                        "1",
+                    ) {
+                        Err("failed to enable auto-rotation via adb".into())
+                    } else {
+                        Ok("auto-rotation enabled".to_string())
+                    }
+                }
+            };
+
+            let _ = tx.send(result);
+        });
+
+        self.rotate_worker = Some(handle);
+    }
+
     /// Start a background push of the current theme to the device.
     ///
     /// The worker thread pushes local assets first, then sends cmd3A frames.
@@ -1182,6 +1319,12 @@ fn sync_color_input_from_cursor(cursor: usize, input: &mut TextInput) {
         input.value = (*color).to_string();
         input.cursor = input.value.len();
     }
+}
+
+fn next_rotation_code(idx: usize) -> (u8, usize) {
+    let i = idx % ROTATION_CODES.len();
+    let next = (i + 1) % ROTATION_CODES.len();
+    (ROTATION_CODES[i], next)
 }
 
 fn expand_tilde_path(raw: &str) -> PathBuf {
@@ -1332,5 +1475,18 @@ mod tests {
         assert_eq!(w.x, 10);
         assert_eq!(w.y, 20);
         assert!(!app.dirty);
+    }
+
+    #[test]
+    fn rotation_code_cycle_wraps_through_all_raw_codes() {
+        let mut idx = 0;
+        let mut seen = Vec::new();
+        for _ in 0..5 {
+            let (code, next) = next_rotation_code(idx);
+            seen.push(code);
+            idx = next;
+        }
+
+        assert_eq!(seen, vec![0x00, 0x01, 0x02, 0x03, 0x00]);
     }
 }

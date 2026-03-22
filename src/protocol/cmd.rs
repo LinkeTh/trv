@@ -68,6 +68,13 @@ pub fn build_cmd24_payload(wake: bool) -> Vec<u8> {
     vec![if wake { 0x01 } else { 0x00 }]
 }
 
+/// CMD 0x38 — display orientation selector.
+///
+/// The device app interprets this as a raw orientation code (`0x00..=0x03`).
+pub fn build_cmd38_payload(orientation_code: u8) -> Vec<u8> {
+    vec![orientation_code]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,5 +105,11 @@ mod tests {
     fn test_cmd24_wake() {
         assert_eq!(build_cmd24_payload(true), vec![0x01]);
         assert_eq!(build_cmd24_payload(false), vec![0x00]);
+    }
+
+    #[test]
+    fn test_cmd38_orientation_payload() {
+        assert_eq!(build_cmd38_payload(0x00), vec![0x00]);
+        assert_eq!(build_cmd38_payload(0x03), vec![0x03]);
     }
 }

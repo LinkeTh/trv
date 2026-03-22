@@ -58,6 +58,26 @@ pub fn adb_available() -> bool {
         .unwrap_or(false)
 }
 
+/// Run `adb shell settings put system <key> <value>`.
+///
+/// Returns `true` on successful command exit status.
+pub fn adb_settings_put_system(key: &str, value: &str) -> bool {
+    if !is_safe_adb_arg(key) || !is_safe_adb_arg(value) {
+        return false;
+    }
+
+    match Command::new("adb")
+        .args(["shell", "settings", "put", "system", key, value])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .and_then(|mut c| c.wait())
+    {
+        Ok(status) => status.success(),
+        Err(_) => false,
+    }
+}
+
 /// Default inter-frame delay for split cmd3A sends (50 ms).
 pub const INTER_FRAME_DELAY: Duration = Duration::from_millis(50);
 
