@@ -54,6 +54,12 @@ Changes made in the TUI can then be saved back with **Ctrl+S**.
 | `Esc` | Cancel edit / return to sidebar |
 | `q` / `Ctrl+C` | Quit |
 | `F1` / `?` | Toggle help overlay |
+| `PageUp` / `PageDown` | Scroll log panel history |
+
+Bottom strip panels:
+
+- **Metrics panel** (left, 25% width): live CPU/GPU/MEM preview values.
+- **Log panel** (right, 75% width): activity history (5 rows visible).
 
 ### Sidebar panel (widget list)
 
@@ -101,10 +107,22 @@ Validation errors appear in red at the bottom of the Properties panel.
 | Key | Action |
 |-----|--------|
 | `Ctrl+S` | Save theme — prompts for a file path |
-| `Ctrl+O` | Open theme — prompts for a file path |
+| `Ctrl+O` | Open theme — opens file explorer overlay |
 | `p` / `P` | Push current theme to device |
 | `r` / `R` | Cycle raw rotation code (`00 → 01 → 02 → 03`) via cmd38 |
 | `Ctrl+R` | Re-enable device auto-rotation (ADB system setting) |
+
+Inside the **Open theme** explorer overlay:
+
+| Key | Action |
+|-----|--------|
+| `↑` / `k`, `↓` / `j` | Move selection |
+| `Home` / `End` | Jump to first / last entry |
+| `PageUp` / `PageDown` | Scroll by page |
+| `Enter` | Enter directory or open selected `.toml` file |
+| `Backspace` / `←` / `h` | Go to parent directory |
+| `.` | Toggle hidden files |
+| `Esc` | Cancel open dialog |
 
 When pushing from the TUI, `trv` auto-pushes local image assets first:
 

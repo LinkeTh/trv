@@ -39,6 +39,7 @@ crossbeam-channel = "0.5"
 # TUI
 ratatui = "0.30"
 crossterm = "0.29"
+ratatui-explorer = "0.3"
 
 # System metrics
 sysinfo = "0.38"

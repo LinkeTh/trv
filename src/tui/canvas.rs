@@ -10,9 +10,9 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
+    widgets::{Block, BorderType, Borders, Paragraph},
 };
 
 use crate::theme::model::{MetricSource, Theme, TimeFormat, Widget, WidgetKind, image_remote_name};
@@ -57,15 +57,24 @@ pub fn render(
     focused: bool,
 ) {
     let border_style = if focused {
-        Style::default().fg(palette::BLUE)
+        Style::default()
+            .fg(palette::BLUE)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(palette::SURFACE2)
     };
 
+    let title = if focused { " ● Canvas " } else { " Canvas " };
+
     let block = Block::default()
-        .title(" Canvas ")
+        .title(title)
         .borders(Borders::ALL)
-        .border_style(border_style);
+        .border_style(border_style)
+        .border_type(if focused {
+            BorderType::Thick
+        } else {
+            BorderType::Plain
+        });
 
     let inner = block.inner(area);
     f.render_widget(block, area);

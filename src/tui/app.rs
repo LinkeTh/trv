@@ -7,7 +7,8 @@
 /// - Properties editor (field cursor + inline TextInput)
 /// - Add-widget / Delete-confirm / Save / Open overlay popups
 /// - Push-to-device (background worker + status updates)
-use std::path::PathBuf;
+use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -15,6 +16,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseEvent};
+use ratatui_explorer::{FileExplorer, FileExplorerBuilder, Input as ExplorerInput};
 
 use crate::theme::model::{MetricSource, Theme, TimeFormat, Widget, WidgetKind};
 use crate::theme::toml::{load_theme_file, save_theme_file};
@@ -32,6 +34,9 @@ pub const COLOR_PALETTE: &[&str] = &[
     "#A6DA95", "#F5BDE6", "#C6A0F6", "#7AA2F7", "#2AC3DE", "#73DACA", "#FF9E64", "#E0AF68",
     "#DDB6F2", "#89DDFF", "#ADD7FF", "#C3E88D", "#FFCB6B", "#F78C6C", "#FF5370", "#C792EA",
 ];
+
+pub const LOG_VISIBLE_ROWS: usize = 5;
+const LOG_HISTORY_CAPACITY: usize = 512;
 
 const ROTATION_CODES: [crate::protocol::cmd::OrientationCode; 4] = [
     crate::protocol::cmd::OrientationCode::Raw0,
@@ -137,10 +142,16 @@ pub enum Overlay {
     Save {
         input: TextInput,
     },
-    /// Open dialog — holds the path input
+    /// Open dialog — file explorer state.
     Open {
-        input: TextInput,
+        state: Box<OpenDialogState>,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenDialogState {
+    pub explorer: FileExplorer,
+    pub error: Option<String>,
 }
 
 // ─── Push status ─────────────────────────────────────────────────────────────
@@ -199,6 +210,12 @@ pub struct App {
     /// Result of the last push/save/open action.
     pub push_status: PushStatus,
 
+    /// Activity log history shown in the bottom panel.
+    pub log_lines: VecDeque<String>,
+
+    /// Scroll offset from newest log line (0 = pinned to latest).
+    pub log_scroll: usize,
+
     /// Push worker result channel while a push is running.
     push_result_rx: Option<Receiver<Result<(), String>>>,
 
@@ -240,7 +257,7 @@ impl App {
         } else {
             None
         };
-        Self {
+        let mut app = Self {
             theme,
             theme_path,
             focus: Focus::Sidebar,
@@ -252,6 +269,8 @@ impl App {
             prop_input: None,
             prop_error: None,
             push_status: PushStatus::None,
+            log_lines: VecDeque::with_capacity(LOG_HISTORY_CAPACITY),
+            log_scroll: 0,
             push_result_rx: None,
             push_cancel: None,
             push_worker: None,
@@ -264,7 +283,9 @@ impl App {
             metrics: MetricsSnapshot {
                 values: std::collections::HashMap::new(),
             },
-        }
+        };
+        app.log_event("TUI started");
+        app
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
@@ -288,6 +309,53 @@ impl App {
             .as_ref()
             .map(|t| t.meta.name.as_str())
             .unwrap_or("(no theme)")
+    }
+
+    pub fn visible_log_lines(&self) -> Vec<String> {
+        if self.log_lines.is_empty() {
+            return Vec::new();
+        }
+
+        let max_scroll = self.max_log_scroll();
+        let scroll = self.log_scroll.min(max_scroll);
+        let end = self.log_lines.len().saturating_sub(scroll);
+        let start = end.saturating_sub(LOG_VISIBLE_ROWS);
+
+        self.log_lines
+            .iter()
+            .skip(start)
+            .take(end.saturating_sub(start))
+            .cloned()
+            .collect()
+    }
+
+    pub fn max_log_scroll(&self) -> usize {
+        self.log_lines.len().saturating_sub(LOG_VISIBLE_ROWS)
+    }
+
+    pub fn scroll_log_page_up(&mut self) {
+        self.log_scroll = self
+            .log_scroll
+            .saturating_add(LOG_VISIBLE_ROWS)
+            .min(self.max_log_scroll());
+    }
+
+    pub fn scroll_log_page_down(&mut self) {
+        self.log_scroll = self.log_scroll.saturating_sub(LOG_VISIBLE_ROWS);
+    }
+
+    pub fn log_is_scrolled(&self) -> bool {
+        self.log_scroll > 0
+    }
+
+    pub fn log_event(&mut self, message: impl Into<String>) {
+        if self.log_lines.len() >= LOG_HISTORY_CAPACITY {
+            self.log_lines.pop_front();
+        }
+        self.log_lines.push_back(message.into());
+        if self.log_scroll > 0 {
+            self.log_scroll = self.log_scroll.saturating_add(1).min(self.max_log_scroll());
+        }
     }
 
     /// Number of editable fields for the currently selected widget.
@@ -391,6 +459,14 @@ impl App {
                 self.focus = self.focus.prev();
                 return;
             }
+            KeyCode::PageUp => {
+                self.scroll_log_page_up();
+                return;
+            }
+            KeyCode::PageDown => {
+                self.scroll_log_page_down();
+                return;
+            }
             _ => {}
         }
 
@@ -417,7 +493,7 @@ impl App {
         }
 
         match &mut self.overlay {
-            Overlay::Save { input } | Overlay::Open { input } => {
+            Overlay::Save { input } => {
                 input.insert_str(&pasted);
             }
             Overlay::ColorPicker {
@@ -437,21 +513,25 @@ impl App {
             match rx.try_recv() {
                 Ok(Ok(())) => {
                     self.push_status = PushStatus::PushOk;
+                    self.log_event("Push completed");
                     if let Some(path) = self.theme_path.as_deref()
                         && let Err(e) = crate::config::set_default_theme_path(path)
                     {
                         self.push_status =
                             PushStatus::Err(format!("pushed, but failed to update config: {}", e));
+                        self.log_event(format!("Config update failed after push: {}", e));
                     }
                     self.cleanup_push_worker();
                 }
                 Ok(Err(e)) => {
+                    self.log_event(format!("Push failed: {}", e));
                     self.push_status = PushStatus::Err(e);
                     self.cleanup_push_worker();
                 }
                 Err(TryRecvError::Empty) => {}
                 Err(TryRecvError::Disconnected) => {
                     self.push_status = PushStatus::Err("push worker disconnected".into());
+                    self.log_event("Push worker disconnected");
                     self.cleanup_push_worker();
                 }
             }
@@ -460,16 +540,19 @@ impl App {
         if let Some(rx) = self.rotate_result_rx.as_ref() {
             match rx.try_recv() {
                 Ok(Ok(msg)) => {
+                    self.log_event(format!("Rotation completed: {}", msg));
                     self.push_status = PushStatus::RotateOk(msg);
                     self.cleanup_rotate_worker();
                 }
                 Ok(Err(e)) => {
+                    self.log_event(format!("Rotation failed: {}", e));
                     self.push_status = PushStatus::Err(e);
                     self.cleanup_rotate_worker();
                 }
                 Err(TryRecvError::Empty) => {}
                 Err(TryRecvError::Disconnected) => {
                     self.push_status = PushStatus::Err("rotation worker disconnected".into());
+                    self.log_event("Rotation worker disconnected");
                     self.cleanup_rotate_worker();
                 }
             }
@@ -953,6 +1036,7 @@ impl App {
     }
 
     fn add_widget(&mut self, kind: NewWidgetKind) {
+        let added_kind_label = kind.label();
         let widget = Widget {
             kind: match kind {
                 NewWidgetKind::Metric => WidgetKind::Metric {
@@ -992,6 +1076,7 @@ impl App {
             theme.widgets.push(widget);
             self.selected_widget = Some(theme.widgets.len() - 1);
             self.dirty = true;
+            self.log_event(format!("Added {} widget", added_kind_label));
         }
     }
 
@@ -1019,6 +1104,7 @@ impl App {
         if let Some(theme) = &mut self.theme
             && idx < theme.widgets.len()
         {
+            let label = widget_log_label(&theme.widgets[idx]);
             theme.widgets.remove(idx);
             self.dirty = true;
             let count = theme.widgets.len();
@@ -1028,6 +1114,7 @@ impl App {
                 Some(idx.min(count - 1))
             };
             self.prop_cursor = 0;
+            self.log_event(format!("Deleted widget {}", label));
         }
     }
 
@@ -1043,6 +1130,7 @@ impl App {
         self.overlay = Overlay::Save {
             input: TextInput::new(initial),
         };
+        self.log_event("Save dialog opened");
     }
 
     fn handle_save_key(&mut self, key: KeyEvent) {
@@ -1056,6 +1144,7 @@ impl App {
             InputResult::Pending => {}
             InputResult::Cancelled => {
                 self.overlay = Overlay::None;
+                self.log_event("Save dialog cancelled");
             }
             InputResult::Confirmed => {
                 let path_str = if let Overlay::Save { ref input } = self.overlay {
@@ -1067,14 +1156,19 @@ impl App {
 
                 if !path_str.is_empty() {
                     let path = expand_tilde_path(&path_str);
+                    self.log_event(format!("Saving theme to {}", path.display()));
                     if let Some(theme) = &self.theme {
                         match save_theme_file(theme, &path) {
                             Ok(()) => {
                                 self.theme_path = Some(path);
                                 self.dirty = false;
                                 self.push_status = PushStatus::SaveOk;
+                                if let Some(saved_path) = self.theme_path.as_deref() {
+                                    self.log_event(format!("Saved theme {}", saved_path.display()));
+                                }
                             }
                             Err(e) => {
+                                self.log_event(format!("Save failed: {}", e));
                                 self.push_status = PushStatus::Err(format!("save: {}", e));
                             }
                         }
@@ -1087,55 +1181,123 @@ impl App {
     // ── Open overlay ──────────────────────────────────────────────────────────
 
     fn begin_open(&mut self) {
-        let initial = self
-            .theme_path
-            .as_deref()
-            .and_then(|p| p.to_str())
-            .unwrap_or("")
-            .to_string();
-        self.overlay = Overlay::Open {
-            input: TextInput::new(initial),
-        };
+        match self.build_open_dialog_state() {
+            Ok(state) => {
+                let cwd = state.explorer.cwd().display().to_string();
+                self.overlay = Overlay::Open {
+                    state: Box::new(state),
+                };
+                self.log_event(format!("Open dialog started at {}", cwd));
+            }
+            Err(e) => {
+                self.push_status = PushStatus::Err(format!("open dialog: {}", e));
+                self.log_event(format!("Open dialog failed: {}", e));
+            }
+        }
     }
 
     fn handle_open_key(&mut self, key: KeyEvent) {
-        let result = if let Overlay::Open { ref mut input } = self.overlay {
-            input.handle_key(key)
-        } else {
-            return;
-        };
+        let mut close_overlay = false;
+        let mut open_selected: Option<PathBuf> = None;
+        let mut cancelled = false;
 
-        match result {
-            InputResult::Pending => {}
-            InputResult::Cancelled => {
-                self.overlay = Overlay::None;
-            }
-            InputResult::Confirmed => {
-                let path_str = if let Overlay::Open { ref input } = self.overlay {
-                    input.value.clone()
-                } else {
-                    return;
-                };
-                self.overlay = Overlay::None;
-
-                if !path_str.is_empty() {
-                    let path = expand_tilde_path(&path_str);
-                    match load_theme_file(&path) {
-                        Ok(t) => {
-                            let count = t.widgets.len();
-                            self.theme = Some(t);
-                            self.theme_path = Some(path);
-                            self.dirty = false;
-                            self.selected_widget = if count > 0 { Some(0) } else { None };
-                            self.prop_cursor = 0;
-                            self.prop_error = None;
-                            self.push_status = PushStatus::OpenOk;
-                        }
-                        Err(e) => {
-                            self.push_status = PushStatus::Err(format!("open: {}", e));
-                        }
+        if let Overlay::Open { state } = &mut self.overlay {
+            state.error = None;
+            match key.code {
+                KeyCode::Esc => {
+                    close_overlay = true;
+                    cancelled = true;
+                }
+                KeyCode::Backspace => {
+                    if let Err(e) = state.explorer.handle(ExplorerInput::Left) {
+                        state.error = Some(format!("navigate: {}", e));
                     }
                 }
+                KeyCode::Enter => {
+                    let current = state.explorer.current().clone();
+                    if current.is_dir {
+                        if let Err(e) = state.explorer.handle(ExplorerInput::Right) {
+                            state.error = Some(format!("navigate: {}", e));
+                        }
+                    } else if is_toml_path(&current.path) {
+                        open_selected = Some(current.path.clone());
+                        close_overlay = true;
+                    } else {
+                        state.error = Some("select a .toml file".to_string());
+                    }
+                }
+                _ => {
+                    if let Some(input) = explorer_input_from_key(key)
+                        && let Err(e) = state.explorer.handle(input)
+                    {
+                        state.error = Some(format!("navigate: {}", e));
+                    }
+                }
+            }
+        } else {
+            return;
+        }
+
+        if close_overlay {
+            self.overlay = Overlay::None;
+            if cancelled {
+                self.log_event("Open dialog cancelled");
+            }
+        }
+
+        if let Some(path) = open_selected {
+            self.load_theme_from_path(path);
+        }
+    }
+
+    fn build_open_dialog_state(&self) -> Result<OpenDialogState, String> {
+        let mut builder = FileExplorerBuilder::default()
+            .show_hidden(false)
+            .filter_map(|file| {
+                if file.is_dir || is_toml_path(&file.path) {
+                    Some(file)
+                } else {
+                    None
+                }
+            });
+
+        if let Some(path) = self.theme_path.as_ref() {
+            if path.exists() {
+                builder = builder.working_file(path.clone());
+            } else if let Some(parent) = path.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                builder = builder.working_dir(parent.to_path_buf());
+            }
+        }
+
+        let explorer = builder
+            .build()
+            .map_err(|e| format!("failed to initialize file explorer: {}", e))?;
+
+        Ok(OpenDialogState {
+            explorer,
+            error: None,
+        })
+    }
+
+    fn load_theme_from_path(&mut self, path: PathBuf) {
+        self.log_event(format!("Opening theme {}", path.display()));
+        match load_theme_file(&path) {
+            Ok(t) => {
+                let count = t.widgets.len();
+                self.theme = Some(t);
+                self.theme_path = Some(path.clone());
+                self.dirty = false;
+                self.selected_widget = if count > 0 { Some(0) } else { None };
+                self.prop_cursor = 0;
+                self.prop_error = None;
+                self.push_status = PushStatus::OpenOk;
+                self.log_event(format!("Opened theme {}", path.display()));
+            }
+            Err(e) => {
+                self.push_status = PushStatus::Err(format!("open: {}", e));
+                self.log_event(format!("Open failed: {}", e));
             }
         }
     }
@@ -1155,11 +1317,13 @@ impl App {
     fn start_rotation_worker(&mut self, action: RotationAction) {
         if self.rotate_result_rx.is_some() {
             self.push_status = PushStatus::Err("rotation already in progress".into());
+            self.log_event("Rotation skipped: operation already in progress");
             return;
         }
 
         if self.push_result_rx.is_some() {
             self.push_status = PushStatus::Err("push in progress; wait before rotating".into());
+            self.log_event("Rotation skipped: push still in progress");
             return;
         }
 
@@ -1170,6 +1334,14 @@ impl App {
         let (tx, rx) = mpsc::channel::<Result<String, String>>();
         self.rotate_result_rx = Some(rx);
         self.push_status = PushStatus::RotateInProgress;
+        match action {
+            RotationAction::RawCode(code) => {
+                self.log_event(format!("Rotation started: code {:02X}", code.as_u8()));
+            }
+            RotationAction::EnableAuto => {
+                self.log_event("Rotation started: enable auto-rotation");
+            }
+        }
 
         let handle = std::thread::spawn(move || {
             let result = match action {
@@ -1229,6 +1401,7 @@ impl App {
     fn push_to_device(&mut self) {
         if self.push_result_rx.is_some() {
             self.push_status = PushStatus::Err("push already in progress".into());
+            self.log_event("Push skipped: operation already in progress");
             return;
         }
 
@@ -1236,6 +1409,7 @@ impl App {
             Some(t) => t.clone(),
             None => {
                 self.push_status = PushStatus::Err("no theme loaded".into());
+                self.log_event("Push failed: no theme loaded");
                 return;
             }
         };
@@ -1244,6 +1418,7 @@ impl App {
             Ok(f) => f,
             Err(e) => {
                 self.push_status = PushStatus::Err(format!("build frames: {}", e));
+                self.log_event(format!("Push failed while building frames: {}", e));
                 return;
             }
         };
@@ -1259,6 +1434,7 @@ impl App {
         self.push_result_rx = Some(rx);
         self.push_cancel = Some(cancel);
         self.push_status = PushStatus::PushInProgress;
+        self.log_event(format!("Push started ({} frames)", frames.len()));
 
         let handle = std::thread::spawn(move || {
             crate::daemon::runner::push_theme_assets(&theme, false, Some(&cancel_worker));
@@ -1324,6 +1500,66 @@ fn next_rotation_code(idx: usize) -> (crate::protocol::cmd::OrientationCode, usi
     let i = idx % ROTATION_CODES.len();
     let next = (i + 1) % ROTATION_CODES.len();
     (ROTATION_CODES[i], next)
+}
+
+fn explorer_input_from_key(key: KeyEvent) -> Option<ExplorerInput> {
+    match key.code {
+        KeyCode::Up | KeyCode::Char('k') => Some(ExplorerInput::Up),
+        KeyCode::Down | KeyCode::Char('j') => Some(ExplorerInput::Down),
+        KeyCode::Left | KeyCode::Char('h') => Some(ExplorerInput::Left),
+        KeyCode::Right | KeyCode::Char('l') => Some(ExplorerInput::Right),
+        KeyCode::Home => Some(ExplorerInput::Home),
+        KeyCode::End => Some(ExplorerInput::End),
+        KeyCode::PageUp => Some(ExplorerInput::PageUp),
+        KeyCode::PageDown => Some(ExplorerInput::PageDown),
+        KeyCode::Char('.') => Some(ExplorerInput::ToggleShowHidden),
+        _ => None,
+    }
+}
+
+fn is_toml_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.eq_ignore_ascii_case("toml"))
+        .unwrap_or(false)
+}
+
+fn widget_log_label(widget: &Widget) -> String {
+    match &widget.kind {
+        WidgetKind::Metric { source, .. } => format!("Metric {:?}", source),
+        WidgetKind::Clock { time_format } => format!("Clock {:?}", time_format),
+        WidgetKind::Image { path } => {
+            if path.is_empty() {
+                "Image".to_string()
+            } else {
+                format!("Image {}", file_name_or_path(path))
+            }
+        }
+        WidgetKind::Video { path } => {
+            if path.is_empty() {
+                "Video".to_string()
+            } else {
+                format!("Video {}", file_name_or_path(path))
+            }
+        }
+        WidgetKind::Text { content } => {
+            let mut chars = content.chars();
+            let preview: String = chars.by_ref().take(12).collect();
+            if chars.next().is_some() {
+                format!("Text \"{}…\"", preview)
+            } else {
+                format!("Text \"{}\"", preview)
+            }
+        }
+    }
+}
+
+fn file_name_or_path(raw: &str) -> String {
+    let path = Path::new(raw);
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| raw.to_string())
 }
 
 fn expand_tilde_path(raw: &str) -> PathBuf {
@@ -1487,5 +1723,107 @@ mod tests {
         }
 
         assert_eq!(seen, vec![0x00, 0x01, 0x02, 0x03, 0x00]);
+    }
+
+    #[test]
+    fn log_scrolling_pages_and_clamps() {
+        let mut app = App::new(
+            Some(test_theme()),
+            None,
+            "127.0.0.1".to_string(),
+            22222,
+            1000,
+        );
+
+        for i in 0..20 {
+            app.log_event(format!("line {}", i));
+        }
+
+        app.scroll_log_page_up();
+        assert_eq!(app.log_scroll, LOG_VISIBLE_ROWS.min(app.max_log_scroll()));
+
+        app.scroll_log_page_up();
+        assert_eq!(
+            app.log_scroll,
+            (LOG_VISIBLE_ROWS * 2).min(app.max_log_scroll())
+        );
+
+        for _ in 0..20 {
+            app.scroll_log_page_up();
+        }
+        assert_eq!(app.log_scroll, app.max_log_scroll());
+
+        app.scroll_log_page_down();
+        assert_eq!(
+            app.log_scroll,
+            app.max_log_scroll().saturating_sub(LOG_VISIBLE_ROWS)
+        );
+
+        for _ in 0..20 {
+            app.scroll_log_page_down();
+        }
+        assert_eq!(app.log_scroll, 0);
+    }
+
+    #[test]
+    fn key_pageup_and_pagedown_scroll_log_panel() {
+        let mut app = App::new(
+            Some(test_theme()),
+            None,
+            "127.0.0.1".to_string(),
+            22222,
+            1000,
+        );
+
+        for i in 0..12 {
+            app.log_event(format!("line {}", i));
+        }
+
+        app.handle_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::empty()));
+        assert_eq!(app.log_scroll, LOG_VISIBLE_ROWS.min(app.max_log_scroll()));
+
+        app.handle_key(KeyEvent::new(KeyCode::PageDown, KeyModifiers::empty()));
+        assert_eq!(app.log_scroll, 0);
+    }
+
+    #[test]
+    fn log_scroll_tracks_new_entries_when_scrolled_back() {
+        let mut app = App::new(
+            Some(test_theme()),
+            None,
+            "127.0.0.1".to_string(),
+            22222,
+            1000,
+        );
+
+        for i in 0..12 {
+            app.log_event(format!("line {}", i));
+        }
+
+        app.scroll_log_page_up();
+        let before = app.log_scroll;
+        app.log_event("new line");
+
+        assert_eq!(app.log_scroll, (before + 1).min(app.max_log_scroll()));
+    }
+
+    #[test]
+    fn helper_maps_explorer_keys_and_toml_paths() {
+        assert_eq!(
+            explorer_input_from_key(KeyEvent::new(KeyCode::PageUp, KeyModifiers::empty())),
+            Some(ExplorerInput::PageUp)
+        );
+        assert_eq!(
+            explorer_input_from_key(KeyEvent::new(KeyCode::Char('.'), KeyModifiers::empty())),
+            Some(ExplorerInput::ToggleShowHidden)
+        );
+        assert_eq!(
+            explorer_input_from_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::empty())),
+            None
+        );
+
+        assert!(is_toml_path(Path::new("/tmp/theme.toml")));
+        assert!(is_toml_path(Path::new("/tmp/theme.TOML")));
+        assert!(!is_toml_path(Path::new("/tmp/theme.txt")));
     }
 }

@@ -4,6 +4,7 @@
 ///   ┌─ Sidebar (22%) ─┬───── Canvas (56%) ─────┬─ Properties (22%) ─┐
 ///   │ Widget list     │  484×480 preview        │ Editable fields    │
 ///   └─────────────────┴─────────────────────────┴────────────────────┘
+///   ┤ Metrics preview (25%) │ Log panel (75%, 5 rows visible)          │
 ///   ┤ Status bar (1 row at bottom)                                    │
 ///
 /// Overlays are rendered on top as centered popups:
@@ -13,13 +14,17 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{
+        Block, BorderType, Borders, Clear, FrameExt as _, List, ListItem, ListState, Paragraph,
+        Wrap,
+    },
 };
 
 use crate::theme::model::{Widget, WidgetKind};
 
 use super::app::{
-    App, COLOR_PALETTE, COLOR_PALETTE_COLUMNS, Focus, NewWidgetKind, Overlay, PushStatus,
+    App, COLOR_PALETTE, COLOR_PALETTE_COLUMNS, Focus, LOG_VISIBLE_ROWS, NewWidgetKind,
+    OpenDialogState, Overlay, PushStatus,
 };
 use super::canvas;
 use super::fields::{Field, FieldType, widget_fields};
@@ -32,14 +37,26 @@ use super::palette;
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
 
-    // Split off the bottom status bar (1 row)
+    // Split main content, log panel, and status bar.
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .constraints([
+            Constraint::Min(0),
+            Constraint::Length(LOG_VISIBLE_ROWS as u16 + 2),
+            Constraint::Length(1),
+        ])
         .split(area);
 
     let main_area = rows[0];
-    let status_area = rows[1];
+    let lower_area = rows[1];
+    let status_area = rows[2];
+
+    let lower_cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
+        .split(lower_area);
+    let metrics_area = lower_cols[0];
+    let log_area = lower_cols[1];
 
     // 3-panel horizontal split
     let cols = Layout::default()
@@ -64,6 +81,8 @@ pub fn draw(f: &mut Frame, app: &App) {
         app.focus == Focus::Canvas,
     );
     draw_properties(f, app, props_area);
+    draw_metric_preview_panel(f, app, metrics_area);
+    draw_log_panel(f, app, log_area);
     draw_status_bar(f, app, status_area);
 
     // Overlays drawn last (on top of everything)
@@ -84,7 +103,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         } => draw_color_picker_overlay(f, area, field_name, *cursor, input, *input_active),
         Overlay::DeleteConfirm { idx } => draw_delete_confirm_overlay(f, area, *idx, app),
         Overlay::Save { input } => draw_path_dialog(f, area, "Save theme as", &input.display()),
-        Overlay::Open { input } => draw_path_dialog(f, area, "Open theme", &input.display()),
+        Overlay::Open { state } => draw_open_overlay(f, area, state),
     }
 }
 
@@ -94,11 +113,16 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
     let focused = app.focus == Focus::Sidebar;
     let border_style = panel_border_style(focused);
 
-    let title = format!(" Widgets ({}) ", app.widget_count());
+    let title = if focused {
+        format!(" ● Widgets ({}) ", app.widget_count())
+    } else {
+        format!(" Widgets ({}) ", app.widget_count())
+    };
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(border_style);
+        .border_style(border_style)
+        .border_type(panel_border_type(focused));
 
     let hint_line = Line::from(Span::styled(
         " a:add  d:del  ^↑/↓:reorder",
@@ -164,10 +188,16 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect) {
     let focused = app.focus == Focus::Properties;
     let border_style = panel_border_style(focused);
 
+    let title = if focused {
+        " ● Properties "
+    } else {
+        " Properties "
+    };
     let block = Block::default()
-        .title(" Properties ")
+        .title(title)
         .borders(Borders::ALL)
-        .border_style(border_style);
+        .border_style(border_style)
+        .border_type(panel_border_type(focused));
 
     match app.selected_widget_ref() {
         None => {
@@ -266,6 +296,90 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect) {
     }
 }
 
+// ─── Log panel ────────────────────────────────────────────────────────────────
+
+fn draw_metric_preview_panel(f: &mut Frame, app: &App, area: Rect) {
+    let block = Block::default()
+        .title(" Metrics ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(palette::SAPPHIRE))
+        .border_type(BorderType::Rounded);
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let mut lines: Vec<Line> = Vec::with_capacity(5);
+    for (label, key) in [
+        (" CPU", "cpu_temp"),
+        (" CPU%", "cpu_usage"),
+        (" MEM%", "mem_usage"),
+        (" GPU", "gpu_temp"),
+        (" GPU%", "gpu_usage"),
+    ] {
+        let (value, value_style) = if let Some(value) = app.metrics.values.get(key) {
+            (
+                value.as_str(),
+                Style::default()
+                    .fg(palette::TEXT)
+                    .add_modifier(Modifier::BOLD),
+            )
+        } else {
+            ("--", Style::default().fg(palette::OVERLAY1))
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("{:<6}", label),
+                Style::default().fg(palette::SUBTEXT0),
+            ),
+            Span::styled(format!(" {}", value), value_style),
+        ]));
+    }
+
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+}
+
+fn draw_log_panel(f: &mut Frame, app: &App, area: Rect) {
+    let title = if app.log_is_scrolled() {
+        format!(
+            " Log ({}) [scrolled +{}] ",
+            app.log_lines.len(),
+            app.log_scroll
+        )
+    } else {
+        format!(" Log ({}) ", app.log_lines.len())
+    };
+
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(palette::TEAL))
+        .border_type(BorderType::Rounded);
+
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let mut lines: Vec<Line> = app
+        .visible_log_lines()
+        .into_iter()
+        .map(|line| {
+            Line::from(Span::styled(
+                format!(" {}", line),
+                Style::default().fg(palette::SUBTEXT0),
+            ))
+        })
+        .collect();
+
+    if lines.is_empty() {
+        lines.push(Line::from(Span::styled(
+            " waiting for activity...",
+            Style::default().fg(palette::OVERLAY1),
+        )));
+    }
+
+    f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
+}
+
 // ─── Status bar ──────────────────────────────────────────────────────────────
 
 fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
@@ -289,35 +403,28 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         PushStatus::Err(e) => Span::styled(format!(" ✖ {} ", e), Style::default().fg(palette::RED)),
     };
 
-    // Live metrics strip (shown when at least one reading is available).
-    let m = &app.metrics.values;
-    let mut metrics_spans: Vec<Span> = Vec::new();
-    for (key, label) in &[
-        ("cpu_temp", "CPU"),
-        ("cpu_usage", "CPU%"),
-        ("mem_usage", "MEM%"),
-        ("gpu_temp", "GPU"),
-        ("gpu_usage", "GPU%"),
-    ] {
-        if let Some(val) = m.get(*key) {
-            metrics_spans.push(Span::styled(
-                format!(" {}:{} ", label, val),
-                Style::default().fg(palette::SAPPHIRE),
-            ));
-        }
-    }
+    let focus_badge = match app.focus {
+        Focus::Sidebar => " Focus:Sidebar ",
+        Focus::Canvas => " Focus:Canvas ",
+        Focus::Properties => " Focus:Properties ",
+    };
 
-    let hints = " Tab:focus  ↑↓/jk:nav  Enter:edit/select  Space:toggle  a:add  d:del  P:push  r:rotate  ^R:auto-rotate  ^S:save  ^O:open  q:quit  ?:help";
+    let hints = " Tab:focus  PgUp/PgDn:log  ↑↓/jk:nav  Enter:edit/select  Space:toggle  a:add  d:del  P:push  r:rotate  ^R:auto-rotate  ^S:save  ^O:open  q:quit  ?:help";
 
     let left = Span::styled(
         theme_indicator,
         Style::default().fg(palette::TEXT).bg(palette::SURFACE0),
     );
+    let focus_span = Span::styled(
+        focus_badge,
+        Style::default()
+            .fg(palette::CRUST)
+            .bg(palette::TEAL)
+            .add_modifier(Modifier::BOLD),
+    );
     let right = Span::styled(hints, Style::default().fg(palette::SUBTEXT0));
 
-    let mut spans = vec![left, push_part];
-    spans.extend(metrics_spans);
-    spans.push(right);
+    let spans = vec![left, focus_span, push_part, right];
 
     let bar = Paragraph::new(Line::from(spans)).style(Style::default().bg(palette::BASE));
     f.render_widget(bar, area);
@@ -327,7 +434,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_help_overlay(f: &mut Frame, area: Rect) {
     let popup_w = 56u16.min(area.width.saturating_sub(4));
-    let popup_h = 26u16.min(area.height.saturating_sub(4));
+    let popup_h = 28u16.min(area.height.saturating_sub(4));
     let popup_area = centered_rect(popup_w, popup_h, area);
 
     f.render_widget(Clear, popup_area);
@@ -353,7 +460,10 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         ("r", "Cycle raw rotation code (00→01→02→03)"),
         ("Ctrl+R", "Enable auto-rotation on device"),
         ("Ctrl+S", "Save theme to file"),
-        ("Ctrl+O", "Open theme from file"),
+        ("Ctrl+O", "Open theme explorer (.toml)"),
+        ("PgUp / PgDn", "Scroll log panel history"),
+        ("Backspace", "Open dialog: parent directory"),
+        (".", "Open dialog: toggle hidden files"),
         ("q / Ctrl+C", "Quit"),
         ("F1 / ?", "Toggle this help"),
     ];
@@ -630,6 +740,59 @@ fn draw_path_dialog(f: &mut Frame, area: Rect, title: &str, input_display: &str)
     f.render_widget(Paragraph::new(lines), inner);
 }
 
+fn draw_open_overlay(f: &mut Frame, area: Rect, state: &OpenDialogState) {
+    let popup_w = area.width.saturating_sub(8).max(40);
+    let popup_h = area.height.saturating_sub(6).max(12);
+    let popup_area = centered_rect(popup_w, popup_h, area);
+
+    f.render_widget(Clear, popup_area);
+
+    let title = format!(" Open theme — {} ", state.explorer.cwd().display());
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(palette::LAVENDER))
+        .border_type(BorderType::Rounded);
+    let inner = block.inner(popup_area);
+    f.render_widget(block, popup_area);
+
+    let sections = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(1),
+            Constraint::Length(2),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+
+    f.render_widget_ref(state.explorer.widget(), sections[0]);
+
+    let selected = state.explorer.current();
+    let selected_style = if selected.is_dir {
+        Style::default().fg(palette::PEACH)
+    } else {
+        Style::default().fg(palette::GREEN)
+    };
+    let selected_line = Line::from(vec![
+        Span::styled(" Selected: ", Style::default().fg(palette::SUBTEXT0)),
+        Span::styled(selected.path.display().to_string(), selected_style),
+    ]);
+    f.render_widget(Paragraph::new(selected_line), sections[1]);
+
+    let footer = if let Some(err) = &state.error {
+        Line::from(Span::styled(
+            format!(" ✖ {}", err),
+            Style::default().fg(palette::RED),
+        ))
+    } else {
+        Line::from(Span::styled(
+            " Enter:open  Backspace:parent  .:hidden  Esc:cancel",
+            Style::default().fg(palette::OVERLAY1),
+        ))
+    };
+    f.render_widget(Paragraph::new(footer), sections[2]);
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 fn display_field_value(field: &Field) -> String {
@@ -664,6 +827,14 @@ fn panel_border_style(focused: bool) -> Style {
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(palette::SURFACE2)
+    }
+}
+
+fn panel_border_type(focused: bool) -> BorderType {
+    if focused {
+        BorderType::Thick
+    } else {
+        BorderType::Plain
     }
 }
 
