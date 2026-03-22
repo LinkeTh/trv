@@ -84,6 +84,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn test_build_cmd15_duplicate_show_id_last_wins() {
+        // Passing the same show ID twice: the last value's bytes overwrite the first.
+        // Both writes target the same byte range; the final result should reflect
+        // the last value in the slice.
+        let vals = [("00", 30.0f64), ("00", 50.0f64)];
+        let p = build_cmd15_payload(&vals).unwrap();
+        // show "00" is CPU temp in TENTHS: 50.0 × 10 = 500 = 0x01F4 LE
+        assert_eq!(&p[0..2], &[0xF4, 0x01]);
+    }
+
+    #[test]
+    fn test_build_cmd15_unknown_show_id_errors() {
+        let vals = [("ZZ", 0.0f64)];
+        assert!(build_cmd15_payload(&vals).is_err());
+    }
+
+    #[test]
     fn test_build_cmd15_four_metrics() {
         // Reference payload with 4 active metrics.
         // shows: 00=0, 05=0, 0D=0, 0E=0

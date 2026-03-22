@@ -6,6 +6,7 @@
 /// cycle.
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
@@ -20,6 +21,10 @@ use crate::theme::model::MetricSource;
 
 use super::app::App;
 use super::ui;
+
+/// Log the first `event::poll` failure once; subsequent failures are silent
+/// to avoid log spam on unusual terminal environments.
+static POLL_ERROR_LOGGED: OnceLock<()> = OnceLock::new();
 
 /// Tick interval: controls how often the screen redraws with no input.
 const TICK_RATE: Duration = Duration::from_millis(200);
@@ -65,8 +70,8 @@ pub fn spawn_event_threads() -> (Sender<Event>, Receiver<Event>, Arc<AtomicBool>
     let quit_input = Arc::clone(&quit);
     thread::spawn(move || {
         while !quit_input.load(Ordering::Relaxed) {
-            if event::poll(Duration::from_millis(50)).unwrap_or(false) {
-                match event::read() {
+            match event::poll(Duration::from_millis(50)) {
+                Ok(true) => match event::read() {
                     Ok(CrosstermEvent::Key(k)) => {
                         let _ = tx_input.send(Event::Key(k));
                     }
@@ -80,6 +85,15 @@ pub fn spawn_event_threads() -> (Sender<Event>, Receiver<Event>, Arc<AtomicBool>
                         let _ = tx_input.send(Event::Resize(cols, rows));
                     }
                     _ => {}
+                },
+                Ok(false) => {}
+                Err(_e) => {
+                    POLL_ERROR_LOGGED.get_or_init(|| {
+                        // Use eprintln since the TUI owns stdout/stderr
+                        eprintln!("[trv] event::poll error — input may be degraded");
+                    });
+                    // Back off to avoid CPU spin on repeated terminal errors.
+                    thread::sleep(Duration::from_millis(500));
                 }
             }
         }

@@ -133,7 +133,7 @@ pub fn render(
         // No theme: show a placeholder message
         if canvas_h > 2 && canvas_w > 20 {
             let msg = "No theme loaded";
-            let mx = off_x + canvas_w / 2 - msg.len() as u16 / 2;
+            let mx = (off_x + canvas_w / 2).saturating_sub(msg.len() as u16 / 2);
             let my = off_y + canvas_h / 2;
             if mx >= inner.x && my >= inner.y && mx + msg.len() as u16 <= inner.x + inner.width {
                 let p = Paragraph::new(Line::from(Span::styled(

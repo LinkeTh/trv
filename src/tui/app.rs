@@ -438,28 +438,16 @@ impl App {
                         self.push_status =
                             PushStatus::Err(format!("pushed, but failed to update config: {}", e));
                     }
-                    self.push_result_rx = None;
-                    self.push_cancel = None;
-                    if let Some(handle) = self.push_worker.take() {
-                        let _ = handle.join();
-                    }
+                    self.cleanup_push_worker();
                 }
                 Ok(Err(e)) => {
                     self.push_status = PushStatus::Err(e);
-                    self.push_result_rx = None;
-                    self.push_cancel = None;
-                    if let Some(handle) = self.push_worker.take() {
-                        let _ = handle.join();
-                    }
+                    self.cleanup_push_worker();
                 }
                 Err(TryRecvError::Empty) => {}
                 Err(TryRecvError::Disconnected) => {
                     self.push_status = PushStatus::Err("push worker disconnected".into());
-                    self.push_result_rx = None;
-                    self.push_cancel = None;
-                    if let Some(handle) = self.push_worker.take() {
-                        let _ = handle.join();
-                    }
+                    self.cleanup_push_worker();
                 }
             }
         }
@@ -468,27 +456,35 @@ impl App {
             match rx.try_recv() {
                 Ok(Ok(msg)) => {
                     self.push_status = PushStatus::RotateOk(msg);
-                    self.rotate_result_rx = None;
-                    if let Some(handle) = self.rotate_worker.take() {
-                        let _ = handle.join();
-                    }
+                    self.cleanup_rotate_worker();
                 }
                 Ok(Err(e)) => {
                     self.push_status = PushStatus::Err(e);
-                    self.rotate_result_rx = None;
-                    if let Some(handle) = self.rotate_worker.take() {
-                        let _ = handle.join();
-                    }
+                    self.cleanup_rotate_worker();
                 }
                 Err(TryRecvError::Empty) => {}
                 Err(TryRecvError::Disconnected) => {
                     self.push_status = PushStatus::Err("rotation worker disconnected".into());
-                    self.rotate_result_rx = None;
-                    if let Some(handle) = self.rotate_worker.take() {
-                        let _ = handle.join();
-                    }
+                    self.cleanup_rotate_worker();
                 }
             }
+        }
+    }
+
+    /// Tear down the push worker channel and join its thread.
+    fn cleanup_push_worker(&mut self) {
+        self.push_result_rx = None;
+        self.push_cancel = None;
+        if let Some(handle) = self.push_worker.take() {
+            let _ = handle.join();
+        }
+    }
+
+    /// Tear down the rotate worker channel and join its thread.
+    fn cleanup_rotate_worker(&mut self) {
+        self.rotate_result_rx = None;
+        if let Some(handle) = self.rotate_worker.take() {
+            let _ = handle.join();
         }
     }
 
@@ -496,15 +492,8 @@ impl App {
         if let Some(cancel) = self.push_cancel.take() {
             cancel.store(true, Ordering::Relaxed);
         }
-        self.push_result_rx = None;
-        if let Some(handle) = self.push_worker.take() {
-            let _ = handle.join();
-        }
-
-        self.rotate_result_rx = None;
-        if let Some(handle) = self.rotate_worker.take() {
-            let _ = handle.join();
-        }
+        self.cleanup_push_worker();
+        self.cleanup_rotate_worker();
     }
 
     // ── Sidebar keys ──────────────────────────────────────────────────────────

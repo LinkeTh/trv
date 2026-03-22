@@ -162,7 +162,9 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
             }
             Err(e) => {
                 consecutive_errors += 1;
-                let backoff = (1.0_f64 * 2_f64.powi(consecutive_errors as i32 - 1)).min(30.0);
+                let backoff = (1.0_f64
+                    * 2_f64.powi(consecutive_errors.saturating_sub(1).min(5) as i32))
+                .min(30.0);
 
                 if max_retries > 0 && consecutive_errors > max_retries {
                     error!("cmd15 error ({consecutive_errors} consecutive, giving up): {e}");
@@ -335,6 +337,5 @@ pub fn build_theme_frames(theme: &Theme) -> Result<Vec<Vec<u8>>> {
         widget_payloads.push(bytes);
     }
 
-    split_cmd3a_frames(&widget_payloads)
-        .map_err(|e| anyhow::anyhow!("split cmd3a frames: {}", e))
+    split_cmd3a_frames(&widget_payloads).map_err(|e| anyhow::anyhow!("split cmd3a frames: {}", e))
 }

@@ -43,7 +43,7 @@ Rust requirement:
 
 The install script installs all required packages automatically.
 
-## Install (one-liner)
+## Install or Update (one-liner)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/LinkeTh/trv/main/install.sh | bash

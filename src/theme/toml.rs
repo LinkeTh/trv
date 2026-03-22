@@ -21,14 +21,26 @@ pub fn serialize_theme(theme: &Theme) -> Result<String> {
     toml::to_string_pretty(theme).map_err(|e| anyhow::anyhow!("TOML serialize error: {}", e))
 }
 
-/// Save a theme to a TOML file.
+/// Save a theme to a TOML file atomically (write to a temp file, then rename).
+///
+/// Using a temp-file + rename ensures the destination is never left in a
+/// partial/corrupt state if the process is interrupted mid-write.
 pub fn save_theme_file(theme: &Theme, path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("creating theme directory {:?}", parent))?;
     }
     let content = serialize_theme(theme)?;
-    std::fs::write(path, content).with_context(|| format!("writing theme file {:?}", path))
+
+    // Write to a sibling temp file, then atomically rename into place.
+    let tmp_path = path.with_extension("toml.tmp");
+    std::fs::write(&tmp_path, &content)
+        .with_context(|| format!("writing temp theme file {:?}", tmp_path))?;
+    std::fs::rename(&tmp_path, path)
+        .inspect_err(|_| {
+            let _ = std::fs::remove_file(&tmp_path);
+        })
+        .with_context(|| format!("renaming temp file {:?} -> {:?}", tmp_path, path))
 }
 
 #[cfg(test)]

@@ -28,7 +28,16 @@ pub fn gpu_temp() -> Option<f64> {
         return Some(v);
     }
 
-    // Fallback: max of all DRM card hwmon temp sensors
+    sysfs_gpu_temp()
+}
+
+/// Read GPU temperature from sysfs hwmon sensors (no nvidia-smi).
+///
+/// Walks `/sys/class/drm/card*/device/hwmon/hwmon*/temp*_input` and returns
+/// the maximum plausible value found. Used as a direct fallback path so that
+/// `gpu_query_all` does not re-invoke `nvidia_smi_query` when it already
+/// knows nvidia-smi is unavailable.
+fn sysfs_gpu_temp() -> Option<f64> {
     let mut values: Vec<f64> = Vec::new();
     if let Ok(paths) = glob_drm_temps() {
         for p in paths {
@@ -99,9 +108,9 @@ pub fn gpu_query_all() -> GpuReadings {
             NVIDIA_SMI_FAILURE_LOGGED.get_or_init(|| {
                 eprintln!("[trv] nvidia-smi unavailable for gpu_query_all — using sysfs fallbacks");
             });
-            // Return temp from sysfs + AMD usage fallback.
+            // Use sysfs_gpu_temp() directly to avoid re-invoking nvidia_smi_query.
             return GpuReadings {
-                temp: gpu_temp(),
+                temp: sysfs_gpu_temp(),
                 usage: amd_gpu_usage(),
             };
         }

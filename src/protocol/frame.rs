@@ -62,12 +62,24 @@ pub fn encode_unsigned_le(raw: i64, byte_len: usize) -> Vec<u8> {
 }
 
 /// Encode an ASCII/UTF-8 string as a fixed-length byte field, null-padded or truncated.
+///
+/// Truncation is performed on a UTF-8 character boundary — never in the middle
+/// of a multi-byte codepoint — so the resulting bytes are always valid UTF-8
+/// (padded with NUL bytes to `byte_len`).
 /// Returns raw bytes (not hex).
 pub fn encode_ascii_padded_bytes(text: &str, byte_len: usize) -> Vec<u8> {
     let raw = text.as_bytes();
     let mut buf = vec![0u8; byte_len];
-    let copy_len = raw.len().min(byte_len);
-    buf[..copy_len].copy_from_slice(&raw[..copy_len]);
+    if raw.len() <= byte_len {
+        buf[..raw.len()].copy_from_slice(raw);
+    } else {
+        // Walk backwards from byte_len to find a valid UTF-8 char boundary.
+        let mut safe_len = byte_len;
+        while safe_len > 0 && !text.is_char_boundary(safe_len) {
+            safe_len -= 1;
+        }
+        buf[..safe_len].copy_from_slice(&raw[..safe_len]);
+    }
     buf
 }
 
@@ -136,6 +148,23 @@ mod tests {
         // 400 as 2-byte LE = [0x90, 0x01]
         let b = encode_unsigned_le(400, 2);
         assert_eq!(b, vec![0x90, 0x01]);
+    }
+
+    #[test]
+    fn test_encode_ascii_padded_utf8_boundary() {
+        // "°" (U+00B0) encodes as 2 bytes [0xC2, 0xB0].
+        // A 5-byte field with "°C" (3 bytes) fits fully.
+        let b = encode_ascii_padded_bytes("°C", 5);
+        assert_eq!(b, vec![0xC2, 0xB0, 0x43, 0x00, 0x00]);
+
+        // Truncating "°C" to 1 byte must NOT cut mid-codepoint — result is
+        // a single NUL-padded byte (the 2-byte °  doesn't fit at all).
+        let b1 = encode_ascii_padded_bytes("°C", 1);
+        assert_eq!(b1, vec![0x00]);
+
+        // Truncating to 2 bytes fits exactly one "°".
+        let b2 = encode_ascii_padded_bytes("°C", 2);
+        assert_eq!(b2, vec![0xC2, 0xB0]);
     }
 
     #[test]

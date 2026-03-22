@@ -93,9 +93,19 @@ pub fn adb_settings_put_system(key: &str, value: &str) -> bool {
     )
 }
 
+/// Shell metacharacters that must never appear in ADB arguments.
+///
+/// These characters have special meaning in POSIX shells and could allow
+/// command injection if an argument is ever interpreted by a shell layer.
+/// Rejecting them here is a defense-in-depth measure even though
+/// `Command::new("adb").args(...)` does not invoke a shell.
+const SHELL_METACHARACTERS: &[char] = &[';', '|', '`', '$', '&', '\n', '\r', '\\'];
+
 fn is_safe_adb_arg(arg: &str) -> bool {
     let trimmed = arg.trim();
-    !trimmed.is_empty() && !trimmed.starts_with('-')
+    !trimmed.is_empty()
+        && !trimmed.starts_with('-')
+        && !trimmed.chars().any(|c| SHELL_METACHARACTERS.contains(&c))
 }
 
 #[cfg(test)]
@@ -108,6 +118,18 @@ mod tests {
         assert!(!is_safe_adb_arg("   "));
         assert!(!is_safe_adb_arg("-bad"));
         assert!(!is_safe_adb_arg(" --also-bad"));
+    }
+
+    #[test]
+    fn adb_arg_rejects_shell_metacharacters() {
+        assert!(!is_safe_adb_arg("/sdcard/file;rm -rf /"));
+        assert!(!is_safe_adb_arg("foo|bar"));
+        assert!(!is_safe_adb_arg("`id`"));
+        assert!(!is_safe_adb_arg("$HOME"));
+        assert!(!is_safe_adb_arg("a&b"));
+        assert!(!is_safe_adb_arg("foo\nbar"));
+        assert!(!is_safe_adb_arg("foo\rbar"));
+        assert!(!is_safe_adb_arg("foo\\bar"));
     }
 
     #[test]

@@ -203,6 +203,15 @@ mod tests {
     }
 
     #[test]
+    fn test_split_cmd3a_frames_empty_returns_empty() {
+        let frames = split_cmd3a_frames(&[]).unwrap();
+        assert!(
+            frames.is_empty(),
+            "empty widget list should produce zero frames"
+        );
+    }
+
+    #[test]
     fn test_split_cmd3a_frames_first_clears() {
         let p = WidgetHexParams::default();
         let w = build_widget_bytes(&p).unwrap();

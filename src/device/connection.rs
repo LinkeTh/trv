@@ -28,6 +28,33 @@ pub const DEFAULT_CONNECT_TIMEOUT_MS: u64 = 5000;
 /// issues observed on the device firmware.
 pub const INTER_FRAME_DELAY: Duration = Duration::from_millis(50);
 
+/// Minimum byte length of a valid AAF5 reply frame.
+///
+/// A valid reply must contain at least: magic(2) + length(2) + SN(1) + CMD(1) = 6 bytes.
+const AAF5_REPLY_MIN_LEN: usize = 6;
+
+/// Return `true` if `data` looks like a valid AAF5 reply frame.
+///
+/// A valid reply starts with the `AA F5` magic bytes and is at least
+/// `AAF5_REPLY_MIN_LEN` bytes long.  Non-conforming replies are logged at
+/// `warn` level once per call; they are treated as informational (the daemon
+/// continues normally) since some firmware versions do not send a reply at all.
+fn is_valid_aaf5_reply(data: &[u8]) -> bool {
+    if data.is_empty() {
+        // Timeout — no reply; acceptable per protocol docs.
+        return true;
+    }
+    if data.len() < AAF5_REPLY_MIN_LEN || data[0] != 0xAA || data[1] != 0xF5 {
+        tracing::warn!(
+            "unexpected device reply (len={}, prefix={:02X?}): not a valid AAF5 frame",
+            data.len(),
+            &data[..data.len().min(4)]
+        );
+        return false;
+    }
+    true
+}
+
 /// Send a single AAF5 frame to the device and return the reply bytes.
 ///
 /// Opens a new TCP connection per call.
@@ -70,16 +97,19 @@ pub async fn send_frame(
 
     // Receive with timeout — device may not always reply
     let mut buf = vec![0u8; 4096];
-    match timeout(
+    let reply = match timeout(
         Duration::from_millis(recv_timeout_ms),
         reader.read(&mut buf),
     )
     .await
     {
-        Ok(Ok(n)) => Ok(buf[..n].to_vec()),
-        Ok(Err(e)) => Err(anyhow::anyhow!("recv error: {}", e)),
-        Err(_) => Ok(vec![]), // timeout — no reply, not an error
-    }
+        Ok(Ok(n)) => buf[..n].to_vec(),
+        Ok(Err(e)) => return Err(anyhow::anyhow!("recv error: {}", e)),
+        Err(_) => vec![], // timeout — no reply, not an error
+    };
+
+    is_valid_aaf5_reply(&reply);
+    Ok(reply)
 }
 
 /// Send multiple frames in sequence with an optional inter-frame delay.
