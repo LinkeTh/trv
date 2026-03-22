@@ -7,6 +7,7 @@ pub mod canvas;
 pub mod event;
 pub mod fields;
 pub mod input;
+pub mod palette;
 pub mod ui;
 
 use std::path::PathBuf;

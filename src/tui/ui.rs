@@ -24,6 +24,7 @@ use super::app::{
 use super::canvas;
 use super::fields::{Field, FieldType, widget_fields};
 use super::input::TextInput;
+use super::palette;
 
 // ─── Public entry point ──────────────────────────────────────────────────────
 
@@ -101,7 +102,7 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
 
     let hint_line = Line::from(Span::styled(
         " a:add  d:del  ^↑/↓:reorder",
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(palette::OVERLAY1),
     ));
 
     let inner = block.inner(area);
@@ -116,10 +117,10 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
                 let label = widget_short_label(w);
                 let text = format!("{} {}", icon, label);
                 let style = if app.selected_widget == Some(i) {
-                    Style::default().fg(Color::Black).bg(if focused {
-                        Color::LightCyan
+                    Style::default().fg(palette::CRUST).bg(if focused {
+                        palette::BLUE
                     } else {
-                        Color::Gray
+                        palette::SURFACE2
                     })
                 } else {
                     Style::default().fg(canvas::widget_color(w))
@@ -148,7 +149,7 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
     } else {
         let hint = Paragraph::new(Line::from(Span::styled(
             " No theme loaded\n Use --theme",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(palette::SUBTEXT0),
         )))
         .block(block)
         .wrap(Wrap { trim: false });
@@ -172,7 +173,7 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect) {
         None => {
             let p = Paragraph::new(Line::from(Span::styled(
                 " Select a widget",
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(palette::SUBTEXT0),
             )))
             .block(block);
             f.render_widget(p, area);
@@ -203,16 +204,16 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect) {
                     let is_cursor = i == app.prop_cursor;
                     let name_style = if is_cursor && focused {
                         Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::LightCyan)
+                            .fg(palette::CRUST)
+                            .bg(palette::MAUVE)
                             .add_modifier(Modifier::BOLD)
                     } else {
-                        Style::default().fg(Color::DarkGray)
+                        Style::default().fg(palette::SUBTEXT0)
                     };
                     let val_style = if is_cursor && focused {
-                        Style::default().fg(Color::Black).bg(Color::LightCyan)
+                        Style::default().fg(palette::CRUST).bg(palette::MAUVE)
                     } else {
-                        Style::default().fg(Color::White)
+                        Style::default().fg(palette::TEXT)
                     };
                     // If this row is being edited, show the live text-input value
                     let value = if is_cursor && app.prop_input.is_some() {
@@ -244,17 +245,17 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect) {
                 let footer_content = if let Some(err) = &app.prop_error {
                     Line::from(Span::styled(
                         format!(" ✖ {}", err),
-                        Style::default().fg(Color::Red),
+                        Style::default().fg(palette::RED),
                     ))
                 } else if app.prop_input.is_some() {
                     Line::from(Span::styled(
                         " Enter:confirm  Esc:cancel",
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(palette::OVERLAY1),
                     ))
                 } else if focused {
                     Line::from(Span::styled(
                         " Enter:edit/select  Space:toggle  ↑↓:navigate",
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(palette::OVERLAY1),
                     ))
                 } else {
                     Line::from(Span::raw(""))
@@ -274,12 +275,12 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
     let push_part = match &app.push_status {
         PushStatus::None => Span::raw(""),
         PushStatus::PushInProgress => {
-            Span::styled(" … pushing … ", Style::default().fg(Color::Yellow))
+            Span::styled(" … pushing … ", Style::default().fg(palette::YELLOW))
         }
-        PushStatus::PushOk => Span::styled(" ✓ pushed ", Style::default().fg(Color::Green)),
-        PushStatus::SaveOk => Span::styled(" ✓ saved ", Style::default().fg(Color::Green)),
-        PushStatus::OpenOk => Span::styled(" ✓ opened ", Style::default().fg(Color::Green)),
-        PushStatus::Err(e) => Span::styled(format!(" ✖ {} ", e), Style::default().fg(Color::Red)),
+        PushStatus::PushOk => Span::styled(" ✓ pushed ", Style::default().fg(palette::GREEN)),
+        PushStatus::SaveOk => Span::styled(" ✓ saved ", Style::default().fg(palette::GREEN)),
+        PushStatus::OpenOk => Span::styled(" ✓ opened ", Style::default().fg(palette::GREEN)),
+        PushStatus::Err(e) => Span::styled(format!(" ✖ {} ", e), Style::default().fg(palette::RED)),
     };
 
     // Live metrics strip (shown when at least one reading is available).
@@ -295,7 +296,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         if let Some(val) = m.get(*key) {
             metrics_spans.push(Span::styled(
                 format!(" {}:{} ", label, val),
-                Style::default().fg(Color::Cyan),
+                Style::default().fg(palette::SAPPHIRE),
             ));
         }
     }
@@ -304,15 +305,15 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
 
     let left = Span::styled(
         theme_indicator,
-        Style::default().fg(Color::White).bg(Color::DarkGray),
+        Style::default().fg(palette::TEXT).bg(palette::SURFACE0),
     );
-    let right = Span::styled(hints, Style::default().fg(Color::DarkGray));
+    let right = Span::styled(hints, Style::default().fg(palette::SUBTEXT0));
 
     let mut spans = vec![left, push_part];
     spans.extend(metrics_spans);
     spans.push(right);
 
-    let bar = Paragraph::new(Line::from(spans)).style(Style::default().bg(Color::Black));
+    let bar = Paragraph::new(Line::from(spans)).style(Style::default().bg(palette::BASE));
     f.render_widget(bar, area);
 }
 
@@ -328,7 +329,7 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
     let block = Block::default()
         .title(" Help — Keybindings ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::LightCyan));
+        .border_style(Style::default().fg(palette::LAVENDER));
 
     let keys: &[(&str, &str)] = &[
         ("Tab / Shift+Tab", "Cycle panel focus"),
@@ -356,10 +357,10 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
                 Span::styled(
                     format!("  {:<20}", k),
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(palette::PEACH)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::styled(*v, Style::default().fg(Color::White)),
+                Span::styled(*v, Style::default().fg(palette::TEXT)),
             ])
         })
         .collect();
@@ -382,16 +383,16 @@ fn draw_add_widget_overlay(f: &mut Frame, area: Rect, cursor: usize) {
     let block = Block::default()
         .title(" Add widget — type ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::LightCyan));
+        .border_style(Style::default().fg(palette::LAVENDER));
 
     let items: Vec<ListItem> = NewWidgetKind::ALL
         .iter()
         .enumerate()
         .map(|(i, k)| {
             let style = if i == cursor {
-                Style::default().fg(Color::Black).bg(Color::LightCyan)
+                Style::default().fg(palette::CRUST).bg(palette::BLUE)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(palette::TEXT)
             };
             ListItem::new(Line::from(Span::styled(format!("  {} ", k.label()), style)))
         })
@@ -422,16 +423,16 @@ fn draw_field_dropdown_overlay(
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::LightCyan));
+        .border_style(Style::default().fg(palette::LAVENDER));
 
     let items: Vec<ListItem> = options
         .iter()
         .enumerate()
         .map(|(i, opt)| {
             let style = if i == cursor {
-                Style::default().fg(Color::Black).bg(Color::LightCyan)
+                Style::default().fg(palette::CRUST).bg(palette::BLUE)
             } else {
-                Style::default().fg(Color::White)
+                Style::default().fg(palette::TEXT)
             };
             ListItem::new(Line::from(Span::styled(format!("  {} ", opt), style)))
         })
@@ -463,7 +464,7 @@ fn draw_color_picker_overlay(
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::LightCyan));
+        .border_style(Style::default().fg(palette::TEAL));
     let inner = block.inner(popup_area);
     f.render_widget(block, popup_area);
 
@@ -476,7 +477,7 @@ fn draw_color_picker_overlay(
     };
     lines.push(Line::from(Span::styled(
         hint,
-        Style::default().fg(Color::DarkGray),
+        Style::default().fg(palette::OVERLAY1),
     )));
 
     for row in 0..rows {
@@ -488,14 +489,14 @@ fn draw_color_picker_overlay(
             }
 
             let hex = COLOR_PALETTE[idx];
-            let swatch = parse_hex_color(hex).unwrap_or(Color::Black);
+            let swatch = parse_hex_color(hex).unwrap_or(palette::BASE);
             let selected = idx == cursor && !input_active;
             let border_style = if selected {
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(palette::YELLOW)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(Color::DarkGray)
+                Style::default().fg(palette::OVERLAY0)
             };
 
             spans.push(Span::styled(if selected { "[" } else { " " }, border_style));
@@ -509,10 +510,10 @@ fn draw_color_picker_overlay(
 
     let hex_label_style = if input_active {
         Style::default()
-            .fg(Color::Yellow)
+            .fg(palette::YELLOW)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(palette::SUBTEXT0)
     };
     let hex_value = if input_active {
         input.display()
@@ -520,9 +521,9 @@ fn draw_color_picker_overlay(
         input.value.clone()
     };
     let hex_value_style = if input_active {
-        Style::default().fg(Color::Black).bg(Color::LightCyan)
+        Style::default().fg(palette::CRUST).bg(palette::BLUE)
     } else {
-        Style::default().fg(Color::White)
+        Style::default().fg(palette::TEXT)
     };
 
     lines.push(Line::from(vec![
@@ -530,12 +531,12 @@ fn draw_color_picker_overlay(
         Span::styled(hex_value, hex_value_style),
     ]));
 
-    let preview = parse_hex_color(&input.value).unwrap_or(Color::Black);
+    let preview = parse_hex_color(&input.value).unwrap_or(palette::BASE);
     lines.push(Line::from(vec![
-        Span::styled(" Preview: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(" Preview: ", Style::default().fg(palette::SUBTEXT0)),
         Span::styled("      ", Style::default().bg(preview)),
         Span::raw(" "),
-        Span::styled(input.value.clone(), Style::default().fg(Color::White)),
+        Span::styled(input.value.clone(), Style::default().fg(palette::TEXT)),
     ]));
 
     f.render_widget(Paragraph::new(lines), inner);
@@ -552,34 +553,36 @@ fn draw_delete_confirm_overlay(f: &mut Frame, area: Rect, idx: usize, app: &App)
 
     let label = app
         .selected_widget_ref()
-        .map(|w| widget_short_label(w))
+        .map(widget_short_label)
         .unwrap_or_else(|| format!("widget #{}", idx + 1));
 
     let block = Block::default()
         .title(" Confirm delete ")
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Red));
+        .border_style(Style::default().fg(palette::RED));
 
     let lines = vec![
         Line::from(Span::styled(
             format!("  Delete \"{}\"?", label),
-            Style::default().fg(Color::White),
+            Style::default().fg(palette::TEXT),
         )),
         Line::from(Span::raw("")),
         Line::from(vec![
             Span::styled(
                 "  y",
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(palette::GREEN)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("/Enter", Style::default().fg(Color::White)),
-            Span::styled(" — yes      ", Style::default().fg(Color::DarkGray)),
+            Span::styled("/Enter", Style::default().fg(palette::TEXT)),
+            Span::styled(" — yes      ", Style::default().fg(palette::OVERLAY1)),
             Span::styled(
                 "n",
-                Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(palette::RED)
+                    .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("/Esc — no", Style::default().fg(Color::White)),
+            Span::styled("/Esc — no", Style::default().fg(palette::TEXT)),
         ]),
     ];
 
@@ -600,7 +603,7 @@ fn draw_path_dialog(f: &mut Frame, area: Rect, title: &str, input_display: &str)
     let block = Block::default()
         .title(title.as_str())
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::LightCyan));
+        .border_style(Style::default().fg(palette::LAVENDER));
 
     let inner = block.inner(popup_area);
     f.render_widget(block, popup_area);
@@ -608,11 +611,11 @@ fn draw_path_dialog(f: &mut Frame, area: Rect, title: &str, input_display: &str)
     let lines = vec![
         Line::from(Span::styled(
             format!(" {}", input_display),
-            Style::default().fg(Color::White),
+            Style::default().fg(palette::TEXT),
         )),
         Line::from(Span::styled(
             " Enter:confirm  Esc:cancel",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(palette::OVERLAY1),
         )),
     ];
 
@@ -649,10 +652,10 @@ fn parse_hex_color(hex: &str) -> Option<Color> {
 fn panel_border_style(focused: bool) -> Style {
     if focused {
         Style::default()
-            .fg(Color::LightCyan)
+            .fg(palette::BLUE)
             .add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(palette::SURFACE2)
     }
 }
 

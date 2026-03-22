@@ -25,12 +25,12 @@ use super::input::{InputResult, TextInput};
 
 pub const COLOR_PALETTE_COLUMNS: usize = 8;
 pub const COLOR_PALETTE: &[&str] = &[
-    "#FFFFFF", "#E6E6E6", "#BFBFBF", "#808080", "#4D4D4D", "#1A1A1A", "#000000", "#FFE5CC",
-    "#FFCCCC", "#FFD9E6", "#F2CCFF", "#D9CCFF", "#CCD9FF", "#CCE5FF", "#CCF2FF", "#CCFFE5",
-    "#CCFFCC", "#E6FFCC", "#FFFFCC", "#FFECCC", "#FFC299", "#FF9999", "#FF99C2", "#E699FF",
-    "#C299FF", "#99B3FF", "#99CCFF", "#99E6FF", "#99FFD9", "#99FF99", "#C2FF99", "#FFFF99",
-    "#FFB366", "#FF6666", "#FF6699", "#CC66FF", "#9966FF", "#668CFF", "#66B3FF", "#66D9FF",
-    "#66FFCC", "#66FF66", "#99FF66", "#FFFF66", "#FF8C1A", "#FF3333", "#FF3366", "#B233FF",
+    "#CDD6F4", "#BAC2DE", "#A6ADC8", "#9399B2", "#7F849C", "#6C7086", "#585B70", "#45475A",
+    "#313244", "#1E1E2E", "#181825", "#11111B", "#89B4FA", "#74C7EC", "#89DCEB", "#94E2D5",
+    "#A6E3A1", "#F9E2AF", "#FAB387", "#F38BA8", "#EBA0AC", "#F5C2E7", "#CBA6F7", "#B4BEFE",
+    "#8BD5CA", "#91D7E3", "#7DC4E4", "#8AADF4", "#B7BDF8", "#EE99A0", "#F5A97F", "#EED49F",
+    "#A6DA95", "#F5BDE6", "#C6A0F6", "#7AA2F7", "#2AC3DE", "#73DACA", "#FF9E64", "#E0AF68",
+    "#DDB6F2", "#89DDFF", "#ADD7FF", "#C3E88D", "#FFCB6B", "#F78C6C", "#FF5370", "#C792EA",
 ];
 
 // ─── Focus ────────────────────────────────────────────────────────────────────

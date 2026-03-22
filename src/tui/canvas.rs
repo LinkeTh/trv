@@ -15,7 +15,9 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph},
 };
 
-use crate::theme::model::{Theme, Widget, WidgetKind};
+use crate::theme::model::{MetricSource, Theme, TimeFormat, Widget, WidgetKind, image_remote_name};
+
+use super::palette;
 
 /// Device display dimensions.
 pub const DISPLAY_W: u16 = 484;
@@ -24,11 +26,11 @@ pub const DISPLAY_H: u16 = 480;
 /// Return the terminal `Color` used to represent each widget type.
 pub fn widget_color(widget: &Widget) -> Color {
     match &widget.kind {
-        WidgetKind::Metric { .. } => Color::Cyan,
-        WidgetKind::Clock { .. } => Color::Yellow,
-        WidgetKind::Image { .. } => Color::Green,
-        WidgetKind::Video { .. } => Color::LightMagenta,
-        WidgetKind::Text { .. } => Color::White,
+        WidgetKind::Metric { .. } => palette::SAPPHIRE,
+        WidgetKind::Clock { .. } => palette::PEACH,
+        WidgetKind::Image { .. } => palette::GREEN,
+        WidgetKind::Video { .. } => palette::MAUVE,
+        WidgetKind::Text { .. } => palette::ROSEWATER,
     }
 }
 
@@ -55,9 +57,9 @@ pub fn render(
     focused: bool,
 ) {
     let border_style = if focused {
-        Style::default().fg(Color::LightCyan)
+        Style::default().fg(palette::BLUE)
     } else {
-        Style::default().fg(Color::DarkGray)
+        Style::default().fg(palette::SURFACE2)
     };
 
     let block = Block::default()
@@ -87,7 +89,15 @@ pub fn render(
     let off_y = inner.y + (inner.height.saturating_sub(canvas_h)) / 2;
 
     // Draw the device outline
-    render_box(f, off_x, off_y, canvas_w, canvas_h, Color::DarkGray, false);
+    render_box(
+        f,
+        off_x,
+        off_y,
+        canvas_w,
+        canvas_h,
+        palette::OVERLAY0,
+        false,
+    );
 
     // Draw a "484×480" label in the bottom-right corner of the device outline
     let label = "484×480";
@@ -97,7 +107,7 @@ pub fn render(
         if lbl_y < inner.y + inner.height {
             let p = Paragraph::new(Line::from(Span::styled(
                 label,
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(palette::OVERLAY1),
             )));
             f.render_widget(p, Rect::new(lbl_x, lbl_y, label.len() as u16, 1));
         }
@@ -128,7 +138,7 @@ pub fn render(
             if mx >= inner.x && my >= inner.y && mx + msg.len() as u16 <= inner.x + inner.width {
                 let p = Paragraph::new(Line::from(Span::styled(
                     msg,
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(palette::SUBTEXT0),
                 )));
                 f.render_widget(p, Rect::new(mx, my, msg.len() as u16, 1));
             }
@@ -157,7 +167,7 @@ fn draw_widget_box(
     canvas_h: u16,
 ) {
     let color = if selected {
-        Color::LightYellow
+        palette::YELLOW
     } else {
         widget_color(widget)
     };
@@ -174,17 +184,111 @@ fn draw_widget_box(
 
     render_box(f, x, y, cw, ch, color, selected);
 
-    // Draw type label inside the box (top-left corner, if space allows)
-    let label = widget_type_label(widget);
-    let num_label = format!("[{}]", idx + 1);
-    let full_label = format!("{}{}", label, num_label);
-
-    if ch >= 1 && cw >= full_label.len() as u16 + 1 {
+    // Draw type+detail label inside the box (top-left corner, if space allows)
+    let max_chars = cw.saturating_sub(2) as usize;
+    if ch >= 1 {
+        let Some(full_label) = widget_canvas_label(widget, idx, max_chars) else {
+            return;
+        };
         let p = Paragraph::new(Line::from(Span::styled(
             full_label,
             Style::default().fg(color),
         )));
         f.render_widget(p, Rect::new(x + 1, y, cw.saturating_sub(2), 1));
+    }
+}
+
+fn widget_canvas_label(widget: &Widget, idx: usize, max_chars: usize) -> Option<String> {
+    let base = format!("{}[{}]", widget_type_label(widget), idx + 1);
+    let detail = widget_detail_label(widget);
+    fit_canvas_label(&base, &detail, max_chars)
+}
+
+fn widget_detail_label(widget: &Widget) -> String {
+    match &widget.kind {
+        WidgetKind::Metric { source, label, .. } => {
+            let label = label.trim();
+            if label.is_empty() {
+                metric_source_key(source).to_string()
+            } else {
+                label.to_string()
+            }
+        }
+        WidgetKind::Clock { time_format } => clock_format_key(time_format).to_string(),
+        WidgetKind::Image { path } | WidgetKind::Video { path } => image_remote_name(path),
+        WidgetKind::Text { content } => normalize_single_line(content),
+    }
+}
+
+fn fit_canvas_label(base: &str, detail: &str, max_chars: usize) -> Option<String> {
+    if max_chars == 0 {
+        return None;
+    }
+
+    let base_len = base.chars().count();
+    if base_len > max_chars {
+        return Some(truncate_with_ellipsis(base, max_chars));
+    }
+
+    let detail = detail.trim();
+    if detail.is_empty() {
+        return Some(base.to_string());
+    }
+
+    let full = format!("{} {}", base, detail);
+    if full.chars().count() <= max_chars {
+        return Some(full);
+    }
+
+    let reserve_for_base = base_len + 1;
+    if reserve_for_base >= max_chars {
+        return Some(base.to_string());
+    }
+
+    let detail_budget = max_chars - reserve_for_base;
+    let detail_fitted = truncate_with_ellipsis(detail, detail_budget);
+    Some(format!("{} {}", base, detail_fitted))
+}
+
+fn truncate_with_ellipsis(s: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+
+    let total = s.chars().count();
+    if total <= max_chars {
+        return s.to_string();
+    }
+
+    if max_chars == 1 {
+        return "…".to_string();
+    }
+
+    let mut out: String = s.chars().take(max_chars - 1).collect();
+    out.push('…');
+    out
+}
+
+fn normalize_single_line(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn metric_source_key(source: &MetricSource) -> &'static str {
+    match source {
+        MetricSource::CpuTemp => "cpu_temp",
+        MetricSource::GpuTemp => "gpu_temp",
+        MetricSource::CpuUsage => "cpu_usage",
+        MetricSource::GpuUsage => "gpu_usage",
+        MetricSource::MemUsage => "mem_usage",
+        MetricSource::Fixed(_) => "fixed",
+    }
+}
+
+fn clock_format_key(format: &TimeFormat) -> &'static str {
+    match format {
+        TimeFormat::HhMmSs => "hh:mm:ss",
+        TimeFormat::Date => "date",
+        TimeFormat::Weekday => "weekday",
     }
 }
 
@@ -212,4 +316,137 @@ fn render_box(f: &mut Frame, x: u16, y: u16, w: u16, h: u16, color: Color, bold:
         .border_type(border_type);
 
     f.render_widget(block, Rect::new(x, y, w, h));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn widget(kind: WidgetKind) -> Widget {
+        Widget {
+            kind,
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 80,
+            text_size: 40,
+            color: "FFFFFF".into(),
+            alpha: 1.0,
+            bold: false,
+            italic: false,
+            underline: false,
+            strikethrough: false,
+            font: String::new(),
+        }
+    }
+
+    #[test]
+    fn metric_detail_prefers_label() {
+        let w = widget(WidgetKind::Metric {
+            source: MetricSource::CpuTemp,
+            unit: "°C".into(),
+            label: "CPU Main".into(),
+            show_label: true,
+        });
+        assert_eq!(widget_detail_label(&w), "CPU Main");
+    }
+
+    #[test]
+    fn metric_detail_falls_back_to_raw_key() {
+        let w = widget(WidgetKind::Metric {
+            source: MetricSource::CpuTemp,
+            unit: "°C".into(),
+            label: "   ".into(),
+            show_label: false,
+        });
+        assert_eq!(widget_detail_label(&w), "cpu_temp");
+    }
+
+    #[test]
+    fn image_detail_uses_basename() {
+        let w = widget(WidgetKind::Image {
+            path: "/tmp/trv/assets/logo.png".into(),
+        });
+        assert_eq!(widget_detail_label(&w), "logo.png");
+    }
+
+    #[test]
+    fn clock_detail_uses_raw_format_key() {
+        let w = widget(WidgetKind::Clock {
+            time_format: TimeFormat::Weekday,
+        });
+        assert_eq!(widget_detail_label(&w), "weekday");
+    }
+
+    #[test]
+    fn text_detail_normalizes_whitespace() {
+        let w = widget(WidgetKind::Text {
+            content: "cpu\n temp\twidget".into(),
+        });
+        assert_eq!(widget_detail_label(&w), "cpu temp widget");
+    }
+
+    #[test]
+    fn canvas_label_includes_detail_when_room_allows() {
+        let w = widget(WidgetKind::Image {
+            path: "/tmp/logo.png".into(),
+        });
+        let label = widget_canvas_label(&w, 0, 24).expect("label");
+        assert_eq!(label, "IMG[1] logo.png");
+    }
+
+    #[test]
+    fn canvas_label_truncates_detail_when_narrow() {
+        let w = widget(WidgetKind::Video {
+            path: "/tmp/very_long_background_video_name.mp4".into(),
+        });
+        let label = widget_canvas_label(&w, 0, 12).expect("label");
+        assert_eq!(label, "VID[1] very…");
+    }
+
+    #[test]
+    fn canvas_label_keeps_base_when_only_base_fits() {
+        let w = widget(WidgetKind::Image {
+            path: "/tmp/logo.png".into(),
+        });
+        let label = widget_canvas_label(&w, 0, 6).expect("label");
+        assert_eq!(label, "IMG[1]");
+    }
+
+    #[test]
+    fn canvas_label_truncates_base_when_extremely_tight() {
+        let w = widget(WidgetKind::Text {
+            content: "hello".into(),
+        });
+        let label = widget_canvas_label(&w, 11, 5).expect("label");
+        assert_eq!(label, "TXT[…");
+    }
+
+    #[test]
+    fn widget_color_by_kind_matches_palette() {
+        let metric = widget(WidgetKind::Metric {
+            source: MetricSource::CpuTemp,
+            unit: "°C".into(),
+            label: String::new(),
+            show_label: false,
+        });
+        let clock = widget(WidgetKind::Clock {
+            time_format: TimeFormat::HhMmSs,
+        });
+        let image = widget(WidgetKind::Image {
+            path: "logo.png".into(),
+        });
+        let video = widget(WidgetKind::Video {
+            path: "bg.mp4".into(),
+        });
+        let text = widget(WidgetKind::Text {
+            content: "CPU".into(),
+        });
+
+        assert_eq!(widget_color(&metric), palette::SAPPHIRE);
+        assert_eq!(widget_color(&clock), palette::PEACH);
+        assert_eq!(widget_color(&image), palette::GREEN);
+        assert_eq!(widget_color(&video), palette::MAUVE);
+        assert_eq!(widget_color(&text), palette::ROSEWATER);
+    }
 }

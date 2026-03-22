@@ -1,0 +1,29 @@
+#![allow(dead_code)]
+
+use ratatui::style::Color;
+
+// Catppuccin Mocha-inspired palette.
+pub const ROSEWATER: Color = Color::Rgb(0xF5, 0xE0, 0xDC);
+pub const PINK: Color = Color::Rgb(0xF5, 0xC2, 0xE7);
+pub const MAUVE: Color = Color::Rgb(0xCB, 0xA6, 0xF7);
+pub const RED: Color = Color::Rgb(0xF3, 0x8B, 0xA8);
+pub const PEACH: Color = Color::Rgb(0xFA, 0xB3, 0x87);
+pub const YELLOW: Color = Color::Rgb(0xF9, 0xE2, 0xAF);
+pub const GREEN: Color = Color::Rgb(0xA6, 0xE3, 0xA1);
+pub const TEAL: Color = Color::Rgb(0x94, 0xE2, 0xD5);
+pub const SKY: Color = Color::Rgb(0x89, 0xDC, 0xEB);
+pub const SAPPHIRE: Color = Color::Rgb(0x74, 0xC7, 0xEC);
+pub const BLUE: Color = Color::Rgb(0x89, 0xB4, 0xFA);
+pub const LAVENDER: Color = Color::Rgb(0xB4, 0xBE, 0xFE);
+
+pub const TEXT: Color = Color::Rgb(0xCD, 0xD6, 0xF4);
+pub const SUBTEXT1: Color = Color::Rgb(0xBA, 0xC2, 0xDE);
+pub const SUBTEXT0: Color = Color::Rgb(0xA6, 0xAD, 0xC8);
+pub const OVERLAY1: Color = Color::Rgb(0x7F, 0x84, 0x9C);
+pub const OVERLAY0: Color = Color::Rgb(0x6C, 0x70, 0x86);
+pub const SURFACE2: Color = Color::Rgb(0x58, 0x5B, 0x70);
+pub const SURFACE1: Color = Color::Rgb(0x45, 0x47, 0x5A);
+pub const SURFACE0: Color = Color::Rgb(0x31, 0x32, 0x44);
+pub const BASE: Color = Color::Rgb(0x1E, 0x1E, 0x2E);
+pub const MANTLE: Color = Color::Rgb(0x18, 0x18, 0x25);
+pub const CRUST: Color = Color::Rgb(0x11, 0x11, 0x1B);
