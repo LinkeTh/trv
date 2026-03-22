@@ -2,8 +2,138 @@
 ///
 /// Each `build_cmdXX_payload` function returns a `Vec<u8>` suitable for
 /// passing to `frame::build_frame_default`.
-use crate::protocol::constants::{encode_show_value, show_offsets};
+use std::fmt;
+
+use crate::protocol::constants::{
+    CMD_CUSTOM_THEME, CMD_METRIC_UPDATE, CMD_ORIENTATION, CMD_SLEEP_WAKE, WIDGET_BYTES_LEN,
+    encode_show_value, show_offsets,
+};
+use crate::protocol::frame::build_frame_default;
 use crate::protocol::widget::WidgetPayloadRaw;
+
+/// cmd3A apply mode: clear+add for first frame, append for subsequent frames.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ThemeApplyMode {
+    ClearAndAdd,
+    Append,
+}
+
+impl ThemeApplyMode {
+    const fn as_byte(self) -> u8 {
+        match self {
+            ThemeApplyMode::ClearAndAdd => 0x01,
+            ThemeApplyMode::Append => 0x00,
+        }
+    }
+}
+
+/// Sleep/wake state for cmd24.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PowerState {
+    Sleep,
+    Wake,
+}
+
+impl PowerState {
+    const fn as_byte(self) -> u8 {
+        match self {
+            PowerState::Sleep => 0x00,
+            PowerState::Wake => 0x01,
+        }
+    }
+}
+
+/// Raw orientation code for cmd38.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrientationCode {
+    Raw0,
+    Raw1,
+    Raw2,
+    Raw3,
+}
+
+impl OrientationCode {
+    pub const fn as_u8(self) -> u8 {
+        match self {
+            OrientationCode::Raw0 => 0x00,
+            OrientationCode::Raw1 => 0x01,
+            OrientationCode::Raw2 => 0x02,
+            OrientationCode::Raw3 => 0x03,
+        }
+    }
+}
+
+impl TryFrom<u8> for OrientationCode {
+    type Error = String;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0x00 => Ok(OrientationCode::Raw0),
+            0x01 => Ok(OrientationCode::Raw1),
+            0x02 => Ok(OrientationCode::Raw2),
+            0x03 => Ok(OrientationCode::Raw3),
+            _ => Err(format!(
+                "invalid orientation code: {value:02X} (expected 00..03)"
+            )),
+        }
+    }
+}
+
+/// Validated cmd15 show ID.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ShowId(u8);
+
+impl ShowId {
+    pub const fn as_u8(self) -> u8 {
+        self.0
+    }
+
+    pub fn as_hex(self) -> String {
+        format!("{:02X}", self.0)
+    }
+}
+
+impl fmt::Display for ShowId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:02X}", self.0)
+    }
+}
+
+impl TryFrom<u8> for ShowId {
+    type Error = String;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        let hex = format!("{value:02X}");
+        if show_offsets().contains_key(hex.as_str()) {
+            Ok(ShowId(value))
+        } else {
+            Err(format!("unknown show id: {value:02X}"))
+        }
+    }
+}
+
+impl TryFrom<&str> for ShowId {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        let trimmed = value.trim();
+        if trimmed.len() != 2 || !trimmed.chars().all(|ch| ch.is_ascii_hexdigit()) {
+            return Err(format!(
+                "invalid show id format: '{value}' (expected 2 hex chars)"
+            ));
+        }
+        let raw = u8::from_str_radix(trimmed, 16)
+            .map_err(|e| format!("invalid show id '{value}': {e}"))?;
+        ShowId::try_from(raw)
+    }
+}
+
+/// One cmd15 metric field update.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Cmd15Field {
+    pub show_id: ShowId,
+    pub value: f64,
+}
 
 /// CMD 0x3A — custom theme definition.
 /// Header: num_widgets(1) + theme_type(1) + widget_data...
@@ -11,7 +141,7 @@ use crate::protocol::widget::WidgetPayloadRaw;
 /// `theme_type` 0x01 = clear existing + add, 0x00 = append.
 pub(crate) fn build_cmd3a_payload(
     widget_payloads: &[WidgetPayloadRaw],
-    theme_type: u8,
+    mode: ThemeApplyMode,
 ) -> Result<Vec<u8>, String> {
     if widget_payloads.len() > u8::MAX as usize {
         return Err(format!(
@@ -21,24 +151,30 @@ pub(crate) fn build_cmd3a_payload(
         ));
     }
     let num = widget_payloads.len() as u8;
-    let mut out = Vec::with_capacity(
-        2 + widget_payloads.len() * crate::protocol::constants::WIDGET_BYTES_LEN,
-    );
+    let mut out = Vec::with_capacity(2 + widget_payloads.len() * WIDGET_BYTES_LEN);
     out.push(num);
-    out.push(theme_type);
+    out.push(mode.as_byte());
     for w in widget_payloads {
         out.extend_from_slice(&w.to_bytes());
     }
     Ok(out)
 }
 
+/// Build a complete cmd3A frame for one or more typed widget payloads.
+pub(crate) fn build_cmd3a_frame(
+    widget_payloads: &[WidgetPayloadRaw],
+    mode: ThemeApplyMode,
+) -> Result<Vec<u8>, String> {
+    let payload = build_cmd3a_payload(widget_payloads, mode)?;
+    build_frame_default(CMD_CUSTOM_THEME, &payload)
+}
+
 /// CMD 0x15 — live data update.
 ///
 /// Builds a payload containing metric values at their correct show-ID offsets.
-/// `show_values` is a slice of `(show_id_str, value_f64)` pairs.
-pub fn build_cmd15_payload(show_values: &[(&str, f64)]) -> Result<Vec<u8>, String> {
-    if show_values.is_empty() {
-        return Err("show_values is empty".into());
+pub fn build_cmd15_payload(fields: &[Cmd15Field]) -> Result<Vec<u8>, String> {
+    if fields.is_empty() {
+        return Err("fields is empty".into());
     }
 
     let offsets = show_offsets();
@@ -47,14 +183,14 @@ pub fn build_cmd15_payload(show_values: &[(&str, f64)]) -> Result<Vec<u8>, Strin
     let mut max_end_hex = 0usize;
     let mut pairs: Vec<(usize, usize, String)> = Vec::new();
 
-    for (show, value) in show_values {
-        let show_upper = show.to_uppercase();
+    for field in fields {
+        let show_upper = field.show_id.as_hex();
         let (start, end) = offsets
             .get(show_upper.as_str())
-            .ok_or_else(|| format!("Unknown show id: {}", show))?;
-        let field_hex = encode_show_value(&show_upper, *value)?;
+            .ok_or_else(|| format!("Unknown show id: {}", field.show_id))?;
+        let field_hex = encode_show_value(&show_upper, field.value)?;
         if field_hex.len() != (end - start) {
-            return Err(format!("Field width mismatch for show {}", show));
+            return Err(format!("Field width mismatch for show {}", field.show_id));
         }
         pairs.push((*start, *end, field_hex));
         if *end > max_end_hex {
@@ -72,17 +208,34 @@ pub fn build_cmd15_payload(show_values: &[(&str, f64)]) -> Result<Vec<u8>, Strin
     hex::decode(content_hex).map_err(|e| format!("hex decode error: {}", e))
 }
 
+/// Build a complete cmd15 frame from typed metric fields.
+pub fn build_cmd15_frame(fields: &[Cmd15Field]) -> Result<Vec<u8>, String> {
+    let payload = build_cmd15_payload(fields)?;
+    build_frame_default(CMD_METRIC_UPDATE, &payload)
+}
+
 /// CMD 0x24 — sleep/wake toggle.
-/// `wake = true` → payload `[0x01]`, `wake = false` → `[0x00]`.
-pub fn build_cmd24_payload(wake: bool) -> Vec<u8> {
-    vec![if wake { 0x01 } else { 0x00 }]
+pub fn build_cmd24_payload(state: PowerState) -> Vec<u8> {
+    vec![state.as_byte()]
+}
+
+/// Build a complete cmd24 frame from typed state.
+pub fn build_cmd24_frame(state: PowerState) -> Result<Vec<u8>, String> {
+    let payload = build_cmd24_payload(state);
+    build_frame_default(CMD_SLEEP_WAKE, &payload)
 }
 
 /// CMD 0x38 — display orientation selector.
 ///
 /// The device app interprets this as a raw orientation code (`0x00..=0x03`).
-pub fn build_cmd38_payload(orientation_code: u8) -> Vec<u8> {
-    vec![orientation_code]
+pub fn build_cmd38_payload(code: OrientationCode) -> Vec<u8> {
+    vec![code.as_u8()]
+}
+
+/// Build a complete cmd38 frame from typed orientation code.
+pub fn build_cmd38_frame(code: OrientationCode) -> Result<Vec<u8>, String> {
+    let payload = build_cmd38_payload(code);
+    build_frame_default(CMD_ORIENTATION, &payload)
 }
 
 #[cfg(test)]
@@ -94,15 +247,24 @@ mod tests {
         // Passing the same show ID twice: the last value's bytes overwrite the first.
         // Both writes target the same byte range; the final result should reflect
         // the last value in the slice.
-        let vals = [("00", 30.0f64), ("00", 50.0f64)];
+        let vals = [
+            Cmd15Field {
+                show_id: ShowId::try_from("00").unwrap(),
+                value: 30.0,
+            },
+            Cmd15Field {
+                show_id: ShowId::try_from("00").unwrap(),
+                value: 50.0,
+            },
+        ];
         let p = build_cmd15_payload(&vals).unwrap();
         // show "00" is CPU temp in TENTHS: 50.0 × 10 = 500 = 0x01F4 LE
         assert_eq!(&p[0..2], &[0xF4, 0x01]);
     }
 
     #[test]
-    fn test_build_cmd15_unknown_show_id_errors() {
-        let vals = [("ZZ", 0.0f64)];
+    fn test_build_cmd15_empty_errors() {
+        let vals: [Cmd15Field; 0] = [];
         assert!(build_cmd15_payload(&vals).is_err());
     }
 
@@ -112,10 +274,22 @@ mod tests {
         // shows: 00=0, 05=0, 0D=0, 0E=0
         // Expected: 66 hex chars = 33 bytes of content
         let vals = [
-            ("00", 40.0f64),
-            ("05", 0.0f64),
-            ("0D", 46.0f64),
-            ("0E", 15.0f64),
+            Cmd15Field {
+                show_id: ShowId::try_from("00").unwrap(),
+                value: 40.0,
+            },
+            Cmd15Field {
+                show_id: ShowId::try_from("05").unwrap(),
+                value: 0.0,
+            },
+            Cmd15Field {
+                show_id: ShowId::try_from("0D").unwrap(),
+                value: 46.0,
+            },
+            Cmd15Field {
+                show_id: ShowId::try_from("0E").unwrap(),
+                value: 15.0,
+            },
         ];
         let p = build_cmd15_payload(&vals).unwrap();
         // Payload bytes for 4 metrics must cover up to offset 66/2=33 bytes
@@ -130,14 +304,25 @@ mod tests {
 
     #[test]
     fn test_cmd24_wake() {
-        assert_eq!(build_cmd24_payload(true), vec![0x01]);
-        assert_eq!(build_cmd24_payload(false), vec![0x00]);
+        assert_eq!(build_cmd24_payload(PowerState::Wake), vec![0x01]);
+        assert_eq!(build_cmd24_payload(PowerState::Sleep), vec![0x00]);
     }
 
     #[test]
     fn test_cmd38_orientation_payload() {
-        assert_eq!(build_cmd38_payload(0x00), vec![0x00]);
-        assert_eq!(build_cmd38_payload(0x03), vec![0x03]);
+        assert_eq!(build_cmd38_payload(OrientationCode::Raw0), vec![0x00]);
+        assert_eq!(build_cmd38_payload(OrientationCode::Raw3), vec![0x03]);
+        assert_eq!(build_cmd38_payload(OrientationCode::Raw2), vec![0x02]);
+    }
+
+    #[test]
+    fn test_orientation_code_try_from_rejects_invalid() {
+        assert!(OrientationCode::try_from(0x04).is_err());
+    }
+
+    #[test]
+    fn test_show_id_try_from_rejects_unknown() {
+        assert!(ShowId::try_from("FF").is_err());
     }
 
     #[test]
@@ -167,7 +352,9 @@ mod tests {
             typeface_path: [0x00; 32],
         };
 
-        let payload = build_cmd3a_payload(std::slice::from_ref(&widget), 0x01).unwrap();
+        let payload =
+            build_cmd3a_payload(std::slice::from_ref(&widget), ThemeApplyMode::ClearAndAdd)
+                .unwrap();
         assert_eq!(
             payload.len(),
             2 + crate::protocol::constants::WIDGET_BYTES_LEN

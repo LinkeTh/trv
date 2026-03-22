@@ -33,11 +33,16 @@ pub const COLOR_PALETTE: &[&str] = &[
     "#DDB6F2", "#89DDFF", "#ADD7FF", "#C3E88D", "#FFCB6B", "#F78C6C", "#FF5370", "#C792EA",
 ];
 
-const ROTATION_CODES: [u8; 4] = [0x00, 0x01, 0x02, 0x03];
+const ROTATION_CODES: [crate::protocol::cmd::OrientationCode; 4] = [
+    crate::protocol::cmd::OrientationCode::Raw0,
+    crate::protocol::cmd::OrientationCode::Raw1,
+    crate::protocol::cmd::OrientationCode::Raw2,
+    crate::protocol::cmd::OrientationCode::Raw3,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RotationAction {
-    RawCode(u8),
+    RawCode(crate::protocol::cmd::OrientationCode),
     EnableAuto,
 }
 
@@ -1169,11 +1174,7 @@ impl App {
         let handle = std::thread::spawn(move || {
             let result = match action {
                 RotationAction::RawCode(code) => {
-                    let payload = crate::protocol::cmd::build_cmd38_payload(code);
-                    let frame = match crate::protocol::frame::build_frame_default(
-                        crate::protocol::constants::CMD_ORIENTATION,
-                        &payload,
-                    ) {
+                    let frame = match crate::protocol::cmd::build_cmd38_frame(code) {
                         Ok(f) => f,
                         Err(e) => {
                             let _ = tx.send(Err(format!("build cmd38 frame: {}", e)));
@@ -1197,7 +1198,7 @@ impl App {
                         crate::device::connection::send_frame(&host, port, &frame, recv_timeout_ms)
                             .await
                             .map_err(|e| format!("sending cmd38: {}", e))?;
-                        Ok(format!("rotation code {:02X} applied", code))
+                        Ok(format!("rotation code {:02X} applied", code.as_u8()))
                     })
                 }
                 RotationAction::EnableAuto => {
@@ -1319,7 +1320,7 @@ fn sync_color_input_from_cursor(cursor: usize, input: &mut TextInput) {
     }
 }
 
-fn next_rotation_code(idx: usize) -> (u8, usize) {
+fn next_rotation_code(idx: usize) -> (crate::protocol::cmd::OrientationCode, usize) {
     let i = idx % ROTATION_CODES.len();
     let next = (i + 1) % ROTATION_CODES.len();
     (ROTATION_CODES[i], next)
@@ -1481,7 +1482,7 @@ mod tests {
         let mut seen = Vec::new();
         for _ in 0..5 {
             let (code, next) = next_rotation_code(idx);
-            seen.push(code);
+            seen.push(code.as_u8());
             idx = next;
         }
 

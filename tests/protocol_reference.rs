@@ -1,6 +1,9 @@
 /// M1 integration tests — byte-for-byte comparison against protocol
 /// reference vectors captured during development.
-use trv::protocol::{cmd::build_cmd15_payload, frame::build_frame_default};
+use trv::protocol::{
+    cmd::{Cmd15Field, ShowId, build_cmd15_frame},
+    frame::build_frame_default,
+};
 use trv::theme::hex::{WidgetHexParams, build_widget_hex};
 
 /// Helper: decode a hex string to bytes, panicking on error.
@@ -13,14 +16,25 @@ fn from_hex(s: &str) -> Vec<u8> {
 /// Reference vector for cmd15 with 4 metrics at known values.
 #[test]
 fn test_cmd15_four_metrics_matches_reference() {
-    let vals = [
-        ("00", 40.0f64),
-        ("05", 0.0f64),
-        ("0D", 46.0f64),
-        ("0E", 15.0f64),
+    let fields = [
+        Cmd15Field {
+            show_id: ShowId::try_from("00").expect("valid show id 00"),
+            value: 40.0,
+        },
+        Cmd15Field {
+            show_id: ShowId::try_from("05").expect("valid show id 05"),
+            value: 0.0,
+        },
+        Cmd15Field {
+            show_id: ShowId::try_from("0D").expect("valid show id 0D"),
+            value: 46.0,
+        },
+        Cmd15Field {
+            show_id: ShowId::try_from("0E").expect("valid show id 0E"),
+            value: 15.0,
+        },
     ];
-    let payload = build_cmd15_payload(&vals).expect("build_cmd15_payload");
-    let frame = build_frame_default(0x15, &payload).expect("build_frame_default");
+    let frame = build_cmd15_frame(&fields).expect("build_cmd15_frame");
 
     let expected = from_hex(
         "AAF50023001590010000000000000000000000000000000000000000000000000000002E000F0000",
@@ -74,8 +88,12 @@ fn test_default_widget_hex_matches_reference() {
 /// Reference vector for a minimal cmd15 frame (single metric, CPU temp = 40°C).
 #[test]
 fn test_frame_builder_single_metric() {
-    let vals = [("00", 40.0f64)];
-    let payload = build_cmd15_payload(&vals).expect("build_cmd15_payload");
+    let fields = [Cmd15Field {
+        show_id: ShowId::try_from("00").expect("valid show id 00"),
+        value: 40.0,
+    }];
+    let payload =
+        trv::protocol::cmd::build_cmd15_payload(&fields).expect("build_cmd15_payload_typed");
     let frame = build_frame_default(0x15, &payload).expect("build_frame_default");
 
     // AAF5 + len(0x0004=SN+CMD+2payload) + 00 (SN) + 15 (CMD) + 9001 + 00 (tail)

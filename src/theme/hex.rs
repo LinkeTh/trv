@@ -4,9 +4,7 @@
 /// `WidgetHexParams` values are converted into `WidgetPayloadRaw` for on-wire
 /// serialization.
 use crate::protocol::{
-    constants::{CMD_CUSTOM_THEME, WIDGET_HEX_LEN},
-    frame::encode_ascii_padded_bytes,
-    widget::WidgetPayloadRaw,
+    constants::WIDGET_HEX_LEN, frame::encode_ascii_padded_bytes, widget::WidgetPayloadRaw,
 };
 
 /// Parameters for building a single widget's binary data.
@@ -76,10 +74,10 @@ impl Default for WidgetHexParams {
     }
 }
 
-fn encode_padded_field<const N: usize>(text: &str) -> [u8; N] {
+fn encode_padded_field<const N: usize>(text: &str) -> Result<[u8; N], String> {
     encode_ascii_padded_bytes(text, N)
         .try_into()
-        .expect("encode_ascii_padded_bytes must return exactly N bytes")
+        .map_err(|_| format!("internal error: padded field length mismatch (expected {N})"))
 }
 
 impl TryFrom<&WidgetHexParams> for WidgetPayloadRaw {
@@ -93,7 +91,7 @@ impl TryFrom<&WidgetHexParams> for WidgetPayloadRaw {
             width_le: p.width.to_le_bytes(),
             height_le: p.height.to_le_bytes(),
             text_size_le: p.text_size.to_le_bytes(),
-            text_color: encode_padded_field::<6>(&p.text_color),
+            text_color: encode_padded_field::<6>(&p.text_color)?,
             alpha: p.alpha,
             animation: p.animation,
             bold: p.bold,
@@ -101,14 +99,14 @@ impl TryFrom<&WidgetHexParams> for WidgetPayloadRaw {
             underline: p.underline,
             del_line: p.del_line,
             num_type: p.num_type,
-            num_unit: encode_padded_field::<5>(&p.num_unit),
+            num_unit: encode_padded_field::<5>(&p.num_unit)?,
             show_text: p.show_text,
             play_num: p.play_num,
             time_format: p.time_format,
-            image_path: encode_padded_field::<150>(&p.image_path),
-            num_text: encode_padded_field::<32>(&p.num_text),
+            image_path: encode_padded_field::<150>(&p.image_path)?,
+            num_text: encode_padded_field::<32>(&p.num_text)?,
             typeface_type: p.typeface_type,
-            typeface_path: encode_padded_field::<32>(&p.typeface_path),
+            typeface_path: encode_padded_field::<32>(&p.typeface_path)?,
         })
     }
 }
@@ -129,29 +127,30 @@ pub(crate) fn build_widget_bytes(p: &WidgetHexParams) -> Result<Vec<u8>, String>
 pub fn build_widget_hex(p: &WidgetHexParams) -> Result<String, String> {
     let bytes = build_widget_bytes(p)?;
     let hex = hex::encode_upper(&bytes);
-    assert_eq!(
-        hex.len(),
-        WIDGET_HEX_LEN,
-        "internal error: widget hex serialized length mismatch"
-    );
+    if hex.len() != WIDGET_HEX_LEN {
+        return Err("internal error: widget hex serialized length mismatch".into());
+    }
     Ok(hex)
 }
 
-/// Split a list of widget byte arrays into individual cmd 3A frames to avoid
+/// Split a list of typed widget payloads into individual cmd3A frames to avoid
 /// TCP fragmentation. Each widget becomes its own AAF5 frame.
 ///
-/// Returns `Vec<Vec<u8>>` of complete frames — the first uses theme_type=0x01
-/// (clear + add) and subsequent frames use 0x00 (append).
+/// Returns `Vec<Vec<u8>>` of complete frames — the first uses clear+add mode
+/// and subsequent frames use append mode.
 pub(crate) fn split_cmd3a_frames(widget_list: &[WidgetPayloadRaw]) -> Result<Vec<Vec<u8>>, String> {
-    use crate::protocol::{cmd::build_cmd3a_payload, frame::build_frame_default};
+    use crate::protocol::cmd::{ThemeApplyMode, build_cmd3a_frame};
 
     widget_list
         .iter()
         .enumerate()
         .map(|(i, w)| {
-            let ttype = if i == 0 { 0x01 } else { 0x00 };
-            let payload = build_cmd3a_payload(std::slice::from_ref(w), ttype)?;
-            build_frame_default(CMD_CUSTOM_THEME, &payload)
+            let mode = if i == 0 {
+                ThemeApplyMode::ClearAndAdd
+            } else {
+                ThemeApplyMode::Append
+            };
+            build_cmd3a_frame(std::slice::from_ref(w), mode)
         })
         .collect()
 }

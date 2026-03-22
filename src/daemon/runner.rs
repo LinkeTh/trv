@@ -16,11 +16,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     device::{adb, connection},
     metrics::collector::MetricCollector,
-    protocol::{
-        cmd::{build_cmd15_payload, build_cmd24_payload},
-        constants::{CMD_METRIC_UPDATE, CMD_SLEEP_WAKE},
-        frame::build_frame_default,
-    },
+    protocol::cmd::{Cmd15Field, PowerState, ShowId, build_cmd15_frame, build_cmd24_frame},
     theme::{
         hex::split_cmd3a_frames,
         model::{Theme, WidgetKind, image_remote_name, theme_metric_sources},
@@ -61,8 +57,7 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
 
     // ── 3. Wake-on (cmd24) ─────────────────────────────────────────────────
     if cfg.send_wake {
-        let payload = build_cmd24_payload(true);
-        let frame = build_frame_default(CMD_SLEEP_WAKE, &payload)
+        let frame = build_cmd24_frame(PowerState::Wake)
             .map_err(|e| anyhow::anyhow!("build cmd24 frame: {}", e))?;
         if cfg.dry_run {
             info!("dry-run cmd24 wake frame={}", hex::encode_upper(&frame));
@@ -291,14 +286,18 @@ async fn send_metrics_frame(
         return Err(anyhow::anyhow!("no metric values available"));
     }
 
-    // Build show_values slice (borrow from readings map)
-    let show_vals: Vec<(&str, f64)> = readings.iter().map(|(id, v)| (id.as_str(), *v)).collect();
+    let mut fields: Vec<Cmd15Field> = Vec::with_capacity(readings.len());
+    for (show_id, value) in &readings {
+        let typed_show = ShowId::try_from(show_id.as_str())
+            .map_err(|e| anyhow::anyhow!("invalid show id '{}' from collector: {}", show_id, e))?;
+        fields.push(Cmd15Field {
+            show_id: typed_show,
+            value: *value,
+        });
+    }
 
-    let payload =
-        build_cmd15_payload(&show_vals).map_err(|e| anyhow::anyhow!("cmd15 build error: {}", e))?;
-
-    let frame = build_frame_default(CMD_METRIC_UPDATE, &payload)
-        .map_err(|e| anyhow::anyhow!("build cmd15 frame: {}", e))?;
+    let frame =
+        build_cmd15_frame(&fields).map_err(|e| anyhow::anyhow!("cmd15 build error: {}", e))?;
 
     if cfg.dry_run {
         info!(

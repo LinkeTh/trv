@@ -42,14 +42,6 @@ pub fn build_frame_default(cmd: u8, payload: &[u8]) -> Result<Vec<u8>, String> {
     build_frame(cmd, payload, 0x00, 0x00)
 }
 
-/// Encode a `u16` value (in tenths of a degree C) as 2-byte little-endian hex.
-/// `value_c` is the floating-point Celsius value.
-pub fn u16le_tenths(value_c: f64) -> [u8; 2] {
-    let raw = (value_c * 10.0).round() as i64;
-    let clamped = raw.clamp(0, 0xFFFF) as u16;
-    clamped.to_le_bytes()
-}
-
 /// Encode a `u32` value as little-endian bytes, clamped to fit `byte_len` bytes.
 pub fn encode_unsigned_le(raw: i64, byte_len: usize) -> Vec<u8> {
     let max_val = if byte_len >= 8 {
@@ -115,13 +107,6 @@ mod tests {
             "frame should end with tail 00: {}",
             hex
         );
-    }
-
-    #[test]
-    fn test_u16le_tenths() {
-        // 40.0°C → 400 tenths → 0x0190 LE → [90, 01]
-        let b = u16le_tenths(40.0);
-        assert_eq!(b, [0x90, 0x01]);
     }
 
     #[test]
