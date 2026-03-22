@@ -15,8 +15,11 @@ pub const CMD_CUSTOM_THEME: u8 = 0x3A;
 
 // ── Widget / payload sizes ─────────────────────────────────────────────────
 
+/// Fixed widget payload size in bytes for one cmd3A widget.
+pub const WIDGET_BYTES_LEN: usize = 247;
+
 /// Fixed widget hex length (494 hex chars = 247 bytes per widget in cmd 3A).
-pub const WIDGET_HEX_LEN: usize = 494;
+pub const WIDGET_HEX_LEN: usize = WIDGET_BYTES_LEN * 2;
 
 /// Show ID → (start_hex_char_offset, end_hex_char_offset) in the cmd15 payload.
 /// Offsets are positions in the hex string (each byte = 2 hex chars).

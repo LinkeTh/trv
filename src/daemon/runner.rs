@@ -322,19 +322,20 @@ async fn send_metrics_frame(
 
 /// Build the split cmd3A frames for the theme's widget list.
 pub fn build_theme_frames(theme: &Theme) -> Result<Vec<Vec<u8>>> {
-    use crate::theme::hex::{WidgetHexParams, build_widget_bytes};
+    use crate::protocol::widget::WidgetPayloadRaw;
+    use crate::theme::hex::WidgetHexParams;
 
     if theme.widgets.is_empty() {
         return Ok(vec![]);
     }
 
-    let mut widget_payloads: Vec<Vec<u8>> = Vec::with_capacity(theme.widgets.len());
+    let mut widget_payloads: Vec<WidgetPayloadRaw> = Vec::with_capacity(theme.widgets.len());
     for (i, widget) in theme.widgets.iter().enumerate() {
         let params = WidgetHexParams::try_from(widget)
             .map_err(|e| anyhow::anyhow!("widget[{}] conversion error: {}", i, e))?;
-        let bytes = build_widget_bytes(&params)
+        let raw = WidgetPayloadRaw::try_from(&params)
             .map_err(|e| anyhow::anyhow!("widget[{}] encode error: {}", i, e))?;
-        widget_payloads.push(bytes);
+        widget_payloads.push(raw);
     }
 
     split_cmd3a_frames(&widget_payloads).map_err(|e| anyhow::anyhow!("split cmd3a frames: {}", e))

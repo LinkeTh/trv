@@ -1,11 +1,12 @@
 /// Widget hex encoder for cmd 3A custom themes.
 ///
 /// Each widget is encoded as a fixed 494-hex-char string (247 bytes).
-/// The `build_widget_hex` function takes a `WidgetHexParams` struct and
-/// returns the raw bytes of the encoded widget.
+/// `WidgetHexParams` values are converted into `WidgetPayloadRaw` for on-wire
+/// serialization.
 use crate::protocol::{
     constants::{CMD_CUSTOM_THEME, WIDGET_HEX_LEN},
     frame::encode_ascii_padded_bytes,
+    widget::WidgetPayloadRaw,
 };
 
 /// Parameters for building a single widget's binary data.
@@ -75,9 +76,41 @@ impl Default for WidgetHexParams {
     }
 }
 
-/// Encode a `u16` value as a 4-hex-char (2-byte) little-endian representation.
-fn le16(v: u16) -> Vec<u8> {
-    v.to_le_bytes().to_vec()
+fn encode_padded_field<const N: usize>(text: &str) -> [u8; N] {
+    encode_ascii_padded_bytes(text, N)
+        .try_into()
+        .expect("encode_ascii_padded_bytes must return exactly N bytes")
+}
+
+impl TryFrom<&WidgetHexParams> for WidgetPayloadRaw {
+    type Error = String;
+
+    fn try_from(p: &WidgetHexParams) -> Result<Self, Self::Error> {
+        Ok(Self {
+            view_type: p.view_type,
+            pos_x_le: p.pos_x.to_le_bytes(),
+            pos_y_le: p.pos_y.to_le_bytes(),
+            width_le: p.width.to_le_bytes(),
+            height_le: p.height.to_le_bytes(),
+            text_size_le: p.text_size.to_le_bytes(),
+            text_color: encode_padded_field::<6>(&p.text_color),
+            alpha: p.alpha,
+            animation: p.animation,
+            bold: p.bold,
+            italic: p.italic,
+            underline: p.underline,
+            del_line: p.del_line,
+            num_type: p.num_type,
+            num_unit: encode_padded_field::<5>(&p.num_unit),
+            show_text: p.show_text,
+            play_num: p.play_num,
+            time_format: p.time_format,
+            image_path: encode_padded_field::<150>(&p.image_path),
+            num_text: encode_padded_field::<32>(&p.num_text),
+            typeface_type: p.typeface_type,
+            typeface_path: encode_padded_field::<32>(&p.typeface_path),
+        })
+    }
 }
 
 /// Build the 247-byte widget binary from a `WidgetHexParams`.
@@ -87,48 +120,20 @@ fn le16(v: u16) -> Vec<u8> {
 ///   textColor(6 ASCII) alpha(1) animation(1) bold(1) italic(1) underline(1) delLine(1)
 ///   numType(1) numUnit(5 UTF-8) showText(1) playNum(1) timeFormat(1)
 ///   imagePath(150 ASCII) numText(32 ASCII) typefaceType(1) typefacePath(32 ASCII)
-pub fn build_widget_bytes(p: &WidgetHexParams) -> Result<Vec<u8>, String> {
-    let mut out = Vec::with_capacity(WIDGET_HEX_LEN / 2);
-
-    out.push(p.view_type); // 1 byte
-    out.extend(le16(p.pos_x)); // 2 bytes
-    out.extend(le16(p.pos_y)); // 2 bytes
-    out.extend(le16(p.width)); // 2 bytes
-    out.extend(le16(p.height)); // 2 bytes
-    out.extend(le16(p.text_size)); // 2 bytes
-    out.extend(encode_ascii_padded_bytes(&p.text_color, 6)); // 6 bytes
-    out.push(p.alpha); // 1 byte
-    out.push(p.animation); // 1 byte
-    out.push(p.bold); // 1 byte
-    out.push(p.italic); // 1 byte
-    out.push(p.underline); // 1 byte
-    out.push(p.del_line); // 1 byte
-    out.push(p.num_type); // 1 byte
-    out.extend(encode_ascii_padded_bytes(&p.num_unit, 5)); // 5 bytes
-    out.push(p.show_text); // 1 byte
-    out.push(p.play_num); // 1 byte
-    out.push(p.time_format); // 1 byte
-    out.extend(encode_ascii_padded_bytes(&p.image_path, 150)); // 150 bytes
-    out.extend(encode_ascii_padded_bytes(&p.num_text, 32)); // 32 bytes
-    out.push(p.typeface_type); // 1 byte
-    out.extend(encode_ascii_padded_bytes(&p.typeface_path, 32)); // 32 bytes
-
-    let expected_bytes = WIDGET_HEX_LEN / 2; // 247
-    if out.len() != expected_bytes {
-        return Err(format!(
-            "widget byte length {} != expected {}",
-            out.len(),
-            expected_bytes
-        ));
-    }
-    Ok(out)
+pub(crate) fn build_widget_bytes(p: &WidgetHexParams) -> Result<Vec<u8>, String> {
+    let raw = WidgetPayloadRaw::try_from(p)?;
+    Ok(raw.to_bytes().to_vec())
 }
 
 /// Build the 494-hex-char widget string (uppercase) from a `WidgetHexParams`.
 pub fn build_widget_hex(p: &WidgetHexParams) -> Result<String, String> {
     let bytes = build_widget_bytes(p)?;
     let hex = hex::encode_upper(&bytes);
-    debug_assert_eq!(hex.len(), WIDGET_HEX_LEN);
+    assert_eq!(
+        hex.len(),
+        WIDGET_HEX_LEN,
+        "internal error: widget hex serialized length mismatch"
+    );
     Ok(hex)
 }
 
@@ -137,7 +142,7 @@ pub fn build_widget_hex(p: &WidgetHexParams) -> Result<String, String> {
 ///
 /// Returns `Vec<Vec<u8>>` of complete frames — the first uses theme_type=0x01
 /// (clear + add) and subsequent frames use 0x00 (append).
-pub fn split_cmd3a_frames(widget_list: &[Vec<u8>]) -> Result<Vec<Vec<u8>>, String> {
+pub(crate) fn split_cmd3a_frames(widget_list: &[WidgetPayloadRaw]) -> Result<Vec<Vec<u8>>, String> {
     use crate::protocol::{cmd::build_cmd3a_payload, frame::build_frame_default};
 
     widget_list
@@ -145,8 +150,7 @@ pub fn split_cmd3a_frames(widget_list: &[Vec<u8>]) -> Result<Vec<Vec<u8>>, Strin
         .enumerate()
         .map(|(i, w)| {
             let ttype = if i == 0 { 0x01 } else { 0x00 };
-            // Pass a slice-of-slice to avoid cloning the 247-byte widget Vec.
-            let payload = build_cmd3a_payload(&[w.as_slice()], ttype)?;
+            let payload = build_cmd3a_payload(std::slice::from_ref(w), ttype)?;
             build_frame_default(CMD_CUSTOM_THEME, &payload)
         })
         .collect()
@@ -214,7 +218,7 @@ mod tests {
     #[test]
     fn test_split_cmd3a_frames_first_clears() {
         let p = WidgetHexParams::default();
-        let w = build_widget_bytes(&p).unwrap();
+        let w = WidgetPayloadRaw::try_from(&p).unwrap();
         let frames = split_cmd3a_frames(&[w.clone(), w.clone()]).unwrap();
         assert_eq!(frames.len(), 2);
 

@@ -3,12 +3,16 @@
 /// Each `build_cmdXX_payload` function returns a `Vec<u8>` suitable for
 /// passing to `frame::build_frame_default`.
 use crate::protocol::constants::{encode_show_value, show_offsets};
+use crate::protocol::widget::WidgetPayloadRaw;
 
 /// CMD 0x3A — custom theme definition.
 /// Header: num_widgets(1) + theme_type(1) + widget_data...
 ///
 /// `theme_type` 0x01 = clear existing + add, 0x00 = append.
-pub fn build_cmd3a_payload(widget_payloads: &[&[u8]], theme_type: u8) -> Result<Vec<u8>, String> {
+pub(crate) fn build_cmd3a_payload(
+    widget_payloads: &[WidgetPayloadRaw],
+    theme_type: u8,
+) -> Result<Vec<u8>, String> {
     if widget_payloads.len() > u8::MAX as usize {
         return Err(format!(
             "too many widgets in one cmd3A payload: {} (max {})",
@@ -17,11 +21,13 @@ pub fn build_cmd3a_payload(widget_payloads: &[&[u8]], theme_type: u8) -> Result<
         ));
     }
     let num = widget_payloads.len() as u8;
-    let mut out = Vec::new();
+    let mut out = Vec::with_capacity(
+        2 + widget_payloads.len() * crate::protocol::constants::WIDGET_BYTES_LEN,
+    );
     out.push(num);
     out.push(theme_type);
     for w in widget_payloads {
-        out.extend_from_slice(w);
+        out.extend_from_slice(&w.to_bytes());
     }
     Ok(out)
 }
@@ -132,5 +138,42 @@ mod tests {
     fn test_cmd38_orientation_payload() {
         assert_eq!(build_cmd38_payload(0x00), vec![0x00]);
         assert_eq!(build_cmd38_payload(0x03), vec![0x03]);
+    }
+
+    #[test]
+    fn test_build_cmd3a_payload_single_widget_header_and_length() {
+        let widget = WidgetPayloadRaw {
+            view_type: 0x02,
+            pos_x_le: [0x00, 0x00],
+            pos_y_le: [0x00, 0x00],
+            width_le: [0x00, 0x00],
+            height_le: [0x00, 0x00],
+            text_size_le: [0x28, 0x00],
+            text_color: *b"FFFFFF",
+            alpha: 0x0A,
+            animation: 0x00,
+            bold: 0x00,
+            italic: 0x00,
+            underline: 0x00,
+            del_line: 0x00,
+            num_type: 0x00,
+            num_unit: [0x00; 5],
+            show_text: 0x00,
+            play_num: 0x00,
+            time_format: 0x00,
+            image_path: [0x00; 150],
+            num_text: [0x00; 32],
+            typeface_type: 0x00,
+            typeface_path: [0x00; 32],
+        };
+
+        let payload = build_cmd3a_payload(std::slice::from_ref(&widget), 0x01).unwrap();
+        assert_eq!(
+            payload.len(),
+            2 + crate::protocol::constants::WIDGET_BYTES_LEN
+        );
+        assert_eq!(payload[0], 0x01);
+        assert_eq!(payload[1], 0x01);
+        assert_eq!(payload[2], 0x02);
     }
 }

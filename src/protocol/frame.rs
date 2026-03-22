@@ -83,11 +83,6 @@ pub fn encode_ascii_padded_bytes(text: &str, byte_len: usize) -> Vec<u8> {
     buf
 }
 
-/// Same as `encode_ascii_padded_bytes` but returns uppercase hex string.
-pub fn encode_ascii_padded(text: &str, byte_len: usize) -> String {
-    hex::encode_upper(encode_ascii_padded_bytes(text, byte_len))
-}
-
 /// Normalize a color string: strip '#', uppercase, validate 6 hex digits.
 pub fn normalize_color(color: &str) -> Result<String, String> {
     let c = color.trim().trim_start_matches('#').to_uppercase();
@@ -127,13 +122,6 @@ mod tests {
         // 40.0°C → 400 tenths → 0x0190 LE → [90, 01]
         let b = u16le_tenths(40.0);
         assert_eq!(b, [0x90, 0x01]);
-    }
-
-    #[test]
-    fn test_encode_ascii_padded() {
-        // "C" padded to 3 bytes → "43 00 00" = "430000"
-        let h = encode_ascii_padded("C", 3);
-        assert_eq!(h, "430000");
     }
 
     #[test]
