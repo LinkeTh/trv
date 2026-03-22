@@ -46,6 +46,14 @@ pub struct Field {
 /// The list always starts with the common positional/style fields, then
 /// appends kind-specific fields.
 pub fn widget_fields(w: &Widget) -> Vec<Field> {
+    if let WidgetKind::Video { path } = &w.kind {
+        return vec![Field {
+            name: "path",
+            value: path.clone(),
+            kind: FieldType::Text,
+        }];
+    }
+
     let mut fields = vec![
         Field {
             name: "x",
@@ -153,13 +161,7 @@ pub fn widget_fields(w: &Widget) -> Vec<Field> {
                 kind: FieldType::Text,
             });
         }
-        WidgetKind::Video { path } => {
-            fields.push(Field {
-                name: "path",
-                value: path.clone(),
-                kind: FieldType::Text,
-            });
-        }
+        WidgetKind::Video { .. } => unreachable!("video fields handled above"),
         WidgetKind::Text { content } => {
             fields.push(Field {
                 name: "content",
@@ -451,6 +453,8 @@ mod tests {
     fn video_widget_path_field_round_trip() {
         let mut w = video_widget();
         let fields = widget_fields(&w);
+        assert_eq!(fields.len(), 1);
+        assert_eq!(fields[0].name, "path");
         let path = fields.iter().find(|f| f.name == "path").unwrap();
         assert_eq!(path.value, "/tmp/bg.mp4");
 

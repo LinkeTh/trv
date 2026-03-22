@@ -167,8 +167,10 @@ mod tests {
 
     #[test]
     fn test_widget_viewtype_position() {
-        let mut p = WidgetHexParams::default();
-        p.view_type = 0x04;
+        let p = WidgetHexParams {
+            view_type: 0x04,
+            ..Default::default()
+        };
         let hex = build_widget_hex(&p).unwrap();
         // First 2 hex chars = viewType byte
         assert_eq!(&hex[0..2], "04");
@@ -176,8 +178,10 @@ mod tests {
 
     #[test]
     fn test_widget_pos_x_le() {
-        let mut p = WidgetHexParams::default();
-        p.pos_x = 100; // 0x0064 LE → [0x64, 0x00] → "6400"
+        let p = WidgetHexParams {
+            pos_x: 100, // 0x0064 LE → [0x64, 0x00] → "6400"
+            ..Default::default()
+        };
         let hex = build_widget_hex(&p).unwrap();
         // viewType(2) + posX starts at offset 2
         assert_eq!(&hex[2..6], "6400");
@@ -185,8 +189,10 @@ mod tests {
 
     #[test]
     fn test_widget_text_color_ascii_encoded() {
-        let mut p = WidgetHexParams::default();
-        p.text_color = "00DDFF".into();
+        let p = WidgetHexParams {
+            text_color: "00DDFF".into(),
+            ..Default::default()
+        };
         let hex = build_widget_hex(&p).unwrap();
         // textColor is at hex offset 22..34 (after viewType+posX+posY+width+height+textSize = 11 bytes = 22 hex chars)
         // "00DDFF" as ASCII bytes = [0x30,0x30,0x44,0x44,0x46,0x46] = "303044444646"

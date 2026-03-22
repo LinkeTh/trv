@@ -42,7 +42,7 @@ pub fn cpu_temp(components: &Components, offset_c: f64) -> Option<f64> {
         };
 
         // Skip implausible readings
-        if temp < 5.0 || temp > 130.0 {
+        if !(5.0..=130.0).contains(&temp) {
             continue;
         }
 

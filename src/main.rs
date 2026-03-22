@@ -186,13 +186,13 @@ async fn main() {
                 std::process::exit(1);
             }
 
-            if !using_preset {
-                if let Err(e) = app_config::set_default_theme_path(&theme_path_for_config) {
-                    eprintln!(
-                        "warning: daemon completed but could not update default theme in config: {}",
-                        e
-                    );
-                }
+            if !using_preset
+                && let Err(e) = app_config::set_default_theme_path(&theme_path_for_config)
+            {
+                eprintln!(
+                    "warning: daemon completed but could not update default theme in config: {}",
+                    e
+                );
             }
         }
 

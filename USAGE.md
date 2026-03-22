@@ -68,8 +68,8 @@ Changes made in the TUI can then be saved back with **Ctrl+S**.
 
 | Key | Action |
 |-----|--------|
-| `←` `↑` `→` `↓` | Move selected widget 1 px |
-| `Shift+←/↑/→/↓` | Move selected widget 10 px |
+| `←` `↑` `→` `↓` | Move selected widget 1 px (non-video widgets) |
+| `Shift+←/↑/→/↓` | Move selected widget 10 px (non-video widgets) |
 | `j` / `k` | Scroll widget selection without moving |
 
 ### Properties panel (field editor)
@@ -114,7 +114,7 @@ Note: device-side theme activation can lag by up to ~10 seconds after push.
 
 ## Editable fields
 
-Every widget has these common fields:
+Most widget types (metric/clock/text/image) have these common fields:
 
 | Field | Format |
 |-------|--------|
@@ -153,6 +153,9 @@ Valid values: `hh:mm:ss`, `date`, `weekday`
 
 ### Video widget notes
 
+- The device app currently plays custom-theme video widgets as fullscreen overlays.
+- Video `x`, `y`, `width`, and `height` are ignored on-device, so the TUI only exposes `path` for video widgets.
+- Canvas preview also renders video widgets as fullscreen to match device behavior.
 - Video playback support is firmware/decoder dependent.
 - Very high-res videos (for example 4K) may fail to play on-device.
 - If video does not play, transcode to a smaller H.264 baseline stream.

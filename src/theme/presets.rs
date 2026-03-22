@@ -1,9 +1,9 @@
-/// Built-in theme presets, embedded at compile time via `include_str!`.
-///
-/// Each preset is a TOML string that can be parsed into a [`Theme`].
-/// The `ALL_PRESETS` slice maps human-readable names to TOML strings.
-///
-/// [`Theme`]: crate::theme::model::Theme
+//! Built-in theme presets, embedded at compile time via `include_str!`.
+//!
+//! Each preset is a TOML string that can be parsed into a [`Theme`].
+//! The `ALL_PRESETS` slice maps human-readable names to TOML strings.
+//!
+//! [`Theme`]: crate::theme::model::Theme
 
 /// Raw TOML strings for each preset.
 const DASHBOARD_TOML: &str = include_str!("../../presets/dashboard.toml");

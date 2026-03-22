@@ -368,20 +368,20 @@ impl TryFrom<&Widget> for crate::theme::hex::WidgetHexParams {
             }
             WidgetKind::Image { path } => {
                 let remote_name = image_remote_name(path);
-                if remote_name.as_bytes().len() > 150 {
+                if remote_name.len() > 150 {
                     return Err(format!(
                         "image path basename too long ({} bytes, max 150)",
-                        remote_name.as_bytes().len()
+                        remote_name.len()
                     ));
                 }
                 p.image_path = remote_name;
             }
             WidgetKind::Video { path } => {
                 let remote_name = image_remote_name(path);
-                if remote_name.as_bytes().len() > 150 {
+                if remote_name.len() > 150 {
                     return Err(format!(
                         "video path basename too long ({} bytes, max 150)",
-                        remote_name.as_bytes().len()
+                        remote_name.len()
                     ));
                 }
                 p.image_path = remote_name;
@@ -391,10 +391,10 @@ impl TryFrom<&Widget> for crate::theme::hex::WidgetHexParams {
             }
             WidgetKind::Text { content } => {
                 // view_type=0x01 text content is read from image_path.
-                if content.as_bytes().len() > 150 {
+                if content.len() > 150 {
                     return Err(format!(
                         "text content too long ({} bytes, max 150)",
-                        content.as_bytes().len()
+                        content.len()
                     ));
                 }
                 p.animation = 0x00;

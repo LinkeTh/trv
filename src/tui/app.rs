@@ -402,11 +402,11 @@ impl App {
         match rx.try_recv() {
             Ok(Ok(())) => {
                 self.push_status = PushStatus::PushOk;
-                if let Some(path) = self.theme_path.as_deref() {
-                    if let Err(e) = crate::config::set_default_theme_path(path) {
-                        self.push_status =
-                            PushStatus::Err(format!("pushed, but failed to update config: {}", e));
-                    }
+                if let Some(path) = self.theme_path.as_deref()
+                    && let Err(e) = crate::config::set_default_theme_path(path)
+                {
+                    self.push_status =
+                        PushStatus::Err(format!("pushed, but failed to update config: {}", e));
                 }
                 self.push_result_rx = None;
                 self.push_cancel = None;
@@ -474,41 +474,41 @@ impl App {
     }
 
     fn sidebar_up(&mut self) {
-        if let Some(ref mut idx) = self.selected_widget {
-            if *idx > 0 {
-                *idx -= 1;
-                self.prop_cursor = 0;
-            }
+        if let Some(ref mut idx) = self.selected_widget
+            && *idx > 0
+        {
+            *idx -= 1;
+            self.prop_cursor = 0;
         }
     }
 
     fn sidebar_down(&mut self) {
         let count = self.widget_count();
-        if let Some(ref mut idx) = self.selected_widget {
-            if *idx + 1 < count {
-                *idx += 1;
-                self.prop_cursor = 0;
-            }
+        if let Some(ref mut idx) = self.selected_widget
+            && *idx + 1 < count
+        {
+            *idx += 1;
+            self.prop_cursor = 0;
         }
     }
 
     fn sidebar_move_up(&mut self) {
-        if let (Some(idx), Some(theme)) = (self.selected_widget, self.theme.as_mut()) {
-            if idx > 0 {
-                theme.widgets.swap(idx, idx - 1);
-                self.selected_widget = Some(idx - 1);
-                self.dirty = true;
-            }
+        if let (Some(idx), Some(theme)) = (self.selected_widget, self.theme.as_mut())
+            && idx > 0
+        {
+            theme.widgets.swap(idx, idx - 1);
+            self.selected_widget = Some(idx - 1);
+            self.dirty = true;
         }
     }
 
     fn sidebar_move_down(&mut self) {
-        if let (Some(idx), Some(theme)) = (self.selected_widget, self.theme.as_mut()) {
-            if idx + 1 < theme.widgets.len() {
-                theme.widgets.swap(idx, idx + 1);
-                self.selected_widget = Some(idx + 1);
-                self.dirty = true;
-            }
+        if let (Some(idx), Some(theme)) = (self.selected_widget, self.theme.as_mut())
+            && idx + 1 < theme.widgets.len()
+        {
+            theme.widgets.swap(idx, idx + 1);
+            self.selected_widget = Some(idx + 1);
+            self.dirty = true;
         }
     }
 
@@ -532,6 +532,13 @@ impl App {
 
     fn move_widget_by(&mut self, dx: u16, dy: u16, subtract: bool) {
         if let Some(w) = self.selected_widget_mut() {
+            if matches!(w.kind, WidgetKind::Video { .. }) {
+                return;
+            }
+
+            let before_x = w.x;
+            let before_y = w.y;
+
             if dx > 0 {
                 if subtract {
                     w.x = w.x.saturating_sub(dx);
@@ -546,7 +553,9 @@ impl App {
                     w.y = w.y.saturating_add(dy).min(479);
                 }
             }
-            self.dirty = true;
+            if w.x != before_x || w.y != before_y {
+                self.dirty = true;
+            }
         }
     }
 
@@ -580,10 +589,10 @@ impl App {
                 self.activate_property_editor();
             }
             KeyCode::Char(' ') => {
-                if let Some(field) = self.current_field() {
-                    if field.kind == FieldType::Toggle {
-                        self.toggle_field(&field);
-                    }
+                if let Some(field) = self.current_field()
+                    && field.kind == FieldType::Toggle
+                {
+                    self.toggle_field(&field);
                 }
             }
             _ => {}
@@ -769,13 +778,12 @@ impl App {
                     }
                     _ => match input.handle_key(key) {
                         InputResult::Pending => {
-                            if let Some(normalized) = normalize_color_value(&input.value) {
-                                if let Some(idx) = COLOR_PALETTE
+                            if let Some(normalized) = normalize_color_value(&input.value)
+                                && let Some(idx) = COLOR_PALETTE
                                     .iter()
                                     .position(|opt| opt.eq_ignore_ascii_case(&normalized))
-                                {
-                                    *cursor = idx;
-                                }
+                            {
+                                *cursor = idx;
                             }
                         }
                         InputResult::Confirmed => {
@@ -951,18 +959,18 @@ impl App {
     }
 
     fn delete_widget(&mut self, idx: usize) {
-        if let Some(theme) = &mut self.theme {
-            if idx < theme.widgets.len() {
-                theme.widgets.remove(idx);
-                self.dirty = true;
-                let count = theme.widgets.len();
-                self.selected_widget = if count == 0 {
-                    None
-                } else {
-                    Some(idx.min(count - 1))
-                };
-                self.prop_cursor = 0;
-            }
+        if let Some(theme) = &mut self.theme
+            && idx < theme.widgets.len()
+        {
+            theme.widgets.remove(idx);
+            self.dirty = true;
+            let count = theme.widgets.len();
+            self.selected_widget = if count == 0 {
+                None
+            } else {
+                Some(idx.min(count - 1))
+            };
+            self.prop_cursor = 0;
         }
     }
 
@@ -1180,10 +1188,10 @@ fn expand_tilde_path(raw: &str) -> PathBuf {
     if raw == "~" {
         return dirs::home_dir().unwrap_or_else(|| PathBuf::from(raw));
     }
-    if let Some(stripped) = raw.strip_prefix("~/") {
-        if let Some(home) = dirs::home_dir() {
-            return home.join(stripped);
-        }
+    if let Some(stripped) = raw.strip_prefix("~/")
+        && let Some(home) = dirs::home_dir()
+    {
+        return home.join(stripped);
     }
     PathBuf::from(raw)
 }
@@ -1280,5 +1288,49 @@ mod tests {
             expand_tilde_path("~/themes/a.toml"),
             home.join("themes/a.toml")
         );
+    }
+
+    #[test]
+    fn moving_video_widget_in_canvas_does_not_change_position_or_dirty() {
+        let mut app = App::new(
+            Some(Theme {
+                meta: ThemeMeta {
+                    name: "test".to_string(),
+                    description: String::new(),
+                },
+                widgets: vec![Widget {
+                    kind: WidgetKind::Video {
+                        path: "/tmp/bg.mp4".to_string(),
+                    },
+                    x: 10,
+                    y: 20,
+                    width: 100,
+                    height: 50,
+                    text_size: 40,
+                    color: "FFFFFF".to_string(),
+                    alpha: 1.0,
+                    bold: false,
+                    italic: false,
+                    underline: false,
+                    strikethrough: false,
+                    font: String::new(),
+                }],
+            }),
+            None,
+            "127.0.0.1".to_string(),
+            22222,
+            1000,
+        );
+
+        app.focus = Focus::Canvas;
+        app.selected_widget = Some(0);
+        app.dirty = false;
+
+        app.handle_key(KeyEvent::new(KeyCode::Right, KeyModifiers::empty()));
+
+        let w = app.selected_widget_ref().expect("selected widget");
+        assert_eq!(w.x, 10);
+        assert_eq!(w.y, 20);
+        assert!(!app.dirty);
     }
 }

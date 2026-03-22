@@ -153,6 +153,30 @@ fn pixel_to_cell(px: u16, py: u16, scale: f32) -> (u16, u16) {
     (cx, cy)
 }
 
+/// Return the widget rectangle in canvas-cell coordinates.
+///
+/// Video widgets are rendered fullscreen because the device app currently
+/// ignores per-widget geometry for `viewType=0x05` playback.
+fn widget_canvas_geometry(
+    widget: &Widget,
+    scale: f32,
+    canvas_w: u16,
+    canvas_h: u16,
+) -> (u16, u16, u16, u16) {
+    if matches!(widget.kind, WidgetKind::Video { .. }) {
+        return (0, 0, canvas_w, canvas_h);
+    }
+
+    let (cx, cy) = pixel_to_cell(widget.x, widget.y, scale);
+    let (cw_raw, ch_raw) = pixel_to_cell(widget.width.max(1), widget.height.max(1), scale);
+
+    // Clamp to canvas area
+    let cw = cw_raw.max(1).min(canvas_w.saturating_sub(cx));
+    let ch = ch_raw.max(1).min(canvas_h.saturating_sub(cy));
+
+    (cx, cy, cw, ch)
+}
+
 /// Draw a widget bounding box on the canvas.
 #[allow(clippy::too_many_arguments)]
 fn draw_widget_box(
@@ -172,12 +196,7 @@ fn draw_widget_box(
         widget_color(widget)
     };
 
-    let (cx, cy) = pixel_to_cell(widget.x, widget.y, scale);
-    let (cw_raw, ch_raw) = pixel_to_cell(widget.width.max(1), widget.height.max(1), scale);
-
-    // Clamp to canvas area
-    let cw = cw_raw.max(1).min(canvas_w.saturating_sub(cx));
-    let ch = ch_raw.max(1).min(canvas_h.saturating_sub(cy));
+    let (cx, cy, cw, ch) = widget_canvas_geometry(widget, scale, canvas_w, canvas_h);
 
     let x = off_x + cx;
     let y = off_y + cy;
@@ -447,5 +466,28 @@ mod tests {
         assert_eq!(widget_color(&image), palette::GREEN);
         assert_eq!(widget_color(&video), palette::MAUVE);
         assert_eq!(widget_color(&text), palette::ROSEWATER);
+    }
+
+    #[test]
+    fn video_geometry_is_fullscreen() {
+        let w = widget(WidgetKind::Video {
+            path: "bg.mp4".into(),
+        });
+        let geometry = widget_canvas_geometry(&w, 1.0, 120, 80);
+        assert_eq!(geometry, (0, 0, 120, 80));
+    }
+
+    #[test]
+    fn non_video_geometry_uses_widget_rect() {
+        let mut w = widget(WidgetKind::Image {
+            path: "logo.png".into(),
+        });
+        w.x = 10;
+        w.y = 20;
+        w.width = 30;
+        w.height = 40;
+
+        let geometry = widget_canvas_geometry(&w, 2.0, 200, 120);
+        assert_eq!(geometry, (20, 20, 60, 40));
     }
 }

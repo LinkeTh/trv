@@ -9,20 +9,20 @@ use std::process::Command;
 /// Returns `None` if no GPU or all methods fail.
 pub fn gpu_temp() -> Option<f64> {
     // Try nvidia-smi first
-    if let Some(v) = nvidia_smi_query("temperature.gpu") {
-        if (5.0..=130.0).contains(&v) {
-            return Some(v);
-        }
+    if let Some(v) = nvidia_smi_query("temperature.gpu")
+        && (5.0..=130.0).contains(&v)
+    {
+        return Some(v);
     }
 
     // Fallback: max of all DRM card hwmon temp sensors
     let mut values: Vec<f64> = Vec::new();
     if let Ok(paths) = glob_drm_temps() {
         for p in paths {
-            if let Ok(txt) = std::fs::read_to_string(&p) {
-                if let Some(v) = parse_millideg(txt.trim()) {
-                    values.push(v);
-                }
+            if let Ok(txt) = std::fs::read_to_string(&p)
+                && let Some(v) = parse_millideg(txt.trim())
+            {
+                values.push(v);
             }
         }
     }
@@ -83,10 +83,11 @@ fn glob_drm_temps() -> Result<Vec<std::path::PathBuf>, std::io::Error> {
             let hwmon = hwmon_entry?.path();
             for sensor_entry in std::fs::read_dir(&hwmon)? {
                 let sensor = sensor_entry?.path();
-                if let Some(name) = sensor.file_name().and_then(|n| n.to_str()) {
-                    if name.starts_with("temp") && name.ends_with("_input") {
-                        paths.push(sensor);
-                    }
+                if let Some(name) = sensor.file_name().and_then(|n| n.to_str())
+                    && name.starts_with("temp")
+                    && name.ends_with("_input")
+                {
+                    paths.push(sensor);
                 }
             }
         }
