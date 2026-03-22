@@ -1181,7 +1181,16 @@ impl App {
             let result = match action {
                 RotationAction::RawCode(code) => {
                     let payload = crate::protocol::cmd::build_cmd38_payload(code);
-                    let frame = crate::protocol::frame::build_frame_default(0x38, &payload);
+                    let frame = match crate::protocol::frame::build_frame_default(
+                        crate::protocol::constants::CMD_ORIENTATION,
+                        &payload,
+                    ) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            let _ = tx.send(Err(format!("build cmd38 frame: {}", e)));
+                            return;
+                        }
+                    };
 
                     let rt = match tokio::runtime::Builder::new_current_thread()
                         .enable_io()
@@ -1254,7 +1263,7 @@ impl App {
         let recv_timeout_ms = self.recv_timeout_ms;
         let cancel = Arc::new(AtomicBool::new(false));
         let cancel_worker = Arc::clone(&cancel);
-        let inter_frame_delay_ms = crate::device::adb::INTER_FRAME_DELAY.as_millis() as u64;
+        let inter_frame_delay_ms = crate::device::connection::INTER_FRAME_DELAY.as_millis() as u64;
 
         let (tx, rx) = mpsc::channel::<Result<(), String>>();
         self.push_result_rx = Some(rx);
@@ -1262,7 +1271,7 @@ impl App {
         self.push_status = PushStatus::PushInProgress;
 
         let handle = std::thread::spawn(move || {
-            crate::daemon::runner::push_theme_assets(&theme, false);
+            crate::daemon::runner::push_theme_assets(&theme, false, Some(&cancel_worker));
 
             if cancel_worker.load(Ordering::Relaxed) {
                 let _ = tx.send(Err("push cancelled".into()));

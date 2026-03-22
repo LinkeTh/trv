@@ -2,8 +2,21 @@
 ///
 /// Strategy:
 ///   - Try nvidia-smi first (NVIDIA GPUs)
-///   - Fall back to /sys/class/drm/card*/device/hwmon/hwmon*/temp*_input
+///   - Fall back to /sys/class/drm/card*/device/hwmon/hwmon*/temp*_input (temp)
+///   - Fall back to /sys/class/drm/card*/device/gpu_busy_percent (usage, AMD)
 use std::process::Command;
+use std::sync::OnceLock;
+
+/// Logs the first nvidia-smi query failure at `warn` level; subsequent
+/// failures are suppressed to avoid log spam on machines without NVIDIA GPUs.
+static NVIDIA_SMI_FAILURE_LOGGED: OnceLock<()> = OnceLock::new();
+
+/// Combined GPU readings from a single batched nvidia-smi invocation.
+#[derive(Debug, Default, Clone)]
+pub struct GpuReadings {
+    pub temp: Option<f64>,
+    pub usage: Option<f64>,
+}
 
 /// Read GPU temperature in °C.
 /// Returns `None` if no GPU or all methods fail.
@@ -30,18 +43,98 @@ pub fn gpu_temp() -> Option<f64> {
 }
 
 /// Read GPU utilization percentage (0–100).
-/// Returns `None` if no GPU or nvidia-smi not available.
+///
+/// Tries nvidia-smi first; falls back to the AMD sysfs
+/// `gpu_busy_percent` interface for AMD GPUs.
 pub fn gpu_usage() -> Option<f64> {
-    let v = nvidia_smi_query("utilization.gpu")?;
-    if (0.0..=100.0).contains(&v) {
-        Some(v)
-    } else {
-        None
+    if let Some(v) = nvidia_smi_query("utilization.gpu")
+        && (0.0..=100.0).contains(&v)
+    {
+        return Some(v);
     }
+
+    amd_gpu_usage()
+}
+
+/// AMD GPU utilization fallback via sysfs `gpu_busy_percent`.
+///
+/// Reads `/sys/class/drm/card*/device/gpu_busy_percent` and returns the
+/// first plausible value found (0–100). Returns `None` if no file exists
+/// or no valid value can be read.
+fn amd_gpu_usage() -> Option<f64> {
+    let drm_base = std::path::Path::new("/sys/class/drm");
+    if !drm_base.exists() {
+        return None;
+    }
+    let entries = std::fs::read_dir(drm_base).ok()?;
+    for entry in entries.flatten() {
+        let busy_path = entry.path().join("device/gpu_busy_percent");
+        if let Ok(txt) = std::fs::read_to_string(&busy_path)
+            && let Ok(v) = txt.trim().parse::<f64>()
+            && (0.0..=100.0).contains(&v)
+        {
+            return Some(v);
+        }
+    }
+    None
+}
+
+/// Query both GPU temperature and usage in a single nvidia-smi invocation.
+///
+/// Returns a `GpuReadings` struct with whichever fields could be read.
+/// Avoids spawning two separate nvidia-smi processes when both are needed.
+/// Falls back to sysfs for usage if nvidia-smi is unavailable.
+pub fn gpu_query_all() -> GpuReadings {
+    let output = Command::new("nvidia-smi")
+        .args([
+            "--query-gpu=temperature.gpu,utilization.gpu",
+            "--format=csv,noheader,nounits",
+        ])
+        .output();
+
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        Ok(_) | Err(_) => {
+            // nvidia-smi not available or failed — log once, then fall back.
+            NVIDIA_SMI_FAILURE_LOGGED.get_or_init(|| {
+                eprintln!("[trv] nvidia-smi unavailable for gpu_query_all — using sysfs fallbacks");
+            });
+            // Return temp from sysfs + AMD usage fallback.
+            return GpuReadings {
+                temp: gpu_temp(),
+                usage: amd_gpu_usage(),
+            };
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let line = match stdout.trim().lines().next() {
+        Some(l) => l.trim(),
+        None => return GpuReadings::default(),
+    };
+
+    // Expected format: "temp, usage"  e.g. "46, 15"
+    let mut parts = line.splitn(2, ',');
+    let temp_str = parts.next().map(str::trim).unwrap_or("");
+    let usage_str = parts.next().map(str::trim).unwrap_or("");
+
+    let temp = temp_str
+        .parse::<f64>()
+        .ok()
+        .filter(|v| (5.0..=130.0).contains(v));
+    let usage = usage_str
+        .parse::<f64>()
+        .ok()
+        .filter(|v| (0.0..=100.0).contains(v));
+
+    GpuReadings { temp, usage }
 }
 
 /// Run `nvidia-smi --query-gpu=<field> --format=csv,noheader,nounits`
 /// and return the parsed f64 value, or `None` on any failure.
+///
+/// The first failure is logged once via `NVIDIA_SMI_FAILURE_LOGGED`; subsequent
+/// failures are silent to avoid log spam on machines without NVIDIA GPUs.
 ///
 /// NOTE: This is a blocking subprocess call (~50-200ms). It is called from the
 /// synchronous `MetricCollector::collect()`, which is invoked from the async daemon
@@ -53,12 +146,17 @@ fn nvidia_smi_query(field: &str) -> Option<f64> {
             &format!("--query-gpu={}", field),
             "--format=csv,noheader,nounits",
         ])
-        .output()
-        .ok()?;
+        .output();
 
-    if !output.status.success() {
-        return None;
-    }
+    let output = match output {
+        Ok(o) if o.status.success() => o,
+        Ok(_) | Err(_) => {
+            NVIDIA_SMI_FAILURE_LOGGED.get_or_init(|| {
+                eprintln!("[trv] nvidia-smi unavailable — GPU metrics via nvidia-smi will not be collected");
+            });
+            return None;
+        }
+    };
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let line = stdout.trim().lines().next()?.trim();
@@ -95,11 +193,14 @@ fn glob_drm_temps() -> Result<Vec<std::path::PathBuf>, std::io::Error> {
     Ok(paths)
 }
 
-/// Parse a sysfs temperature value (may be in millidegrees or degrees).
+/// Parse a sysfs temperature value in millidegrees (thousandths of °C).
+///
+/// The Linux `hwmon` sysfs `temp*_input` files always report in millidegrees
+/// (e.g. `46000` = 46°C). Values outside the plausible sensor range are
+/// rejected.
 fn parse_millideg(raw: &str) -> Option<f64> {
     let v: f64 = raw.parse().ok()?;
-    // Values > 1000 are millidegrees
-    let celsius = if v > 1000.0 { v / 1000.0 } else { v };
+    let celsius = v / 1000.0;
     if (5.0..=130.0).contains(&celsius) {
         Some(celsius)
     } else {
@@ -119,16 +220,12 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_millideg_direct() {
-        // Direct degrees (rare but possible)
-        assert_eq!(parse_millideg("46"), Some(46.0));
-    }
-
-    #[test]
     fn test_parse_millideg_out_of_range() {
-        // Too cold or too hot
-        assert_eq!(parse_millideg("1000"), None); // 1°C if direct, or 1.0°C if millideg — borderline
-        assert_eq!(parse_millideg("200000"), None); // 200°C — too hot
+        // 46 millidegrees = 0.046°C — too cold, rejected
+        assert_eq!(parse_millideg("46"), None);
+        // 200000 millidegrees = 200°C — too hot, rejected
+        assert_eq!(parse_millideg("200000"), None);
+        // 1000 millidegrees = 1°C — too cold, rejected
         assert_eq!(parse_millideg("1000"), None);
     }
 }

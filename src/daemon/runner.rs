@@ -18,6 +18,7 @@ use crate::{
     metrics::collector::MetricCollector,
     protocol::{
         cmd::{build_cmd15_payload, build_cmd24_payload},
+        constants::{CMD_METRIC_UPDATE, CMD_SLEEP_WAKE},
         frame::build_frame_default,
     },
     theme::{
@@ -39,9 +40,16 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
 
     // ── 2. ADB forward ─────────────────────────────────────────────────────
     if cfg.adb_forward {
-        if adb::adb_available() {
-            let ok = adb::adb_forward(cfg.port);
-            if ok {
+        let port = cfg.port;
+        let (available, forwarded) = tokio::task::block_in_place(|| {
+            if adb::adb_available() {
+                (true, adb::adb_forward(port))
+            } else {
+                (false, false)
+            }
+        });
+        if available {
+            if forwarded {
                 info!("adb forward tcp:{p} tcp:{p} OK", p = cfg.port);
             } else {
                 warn!("adb forward failed — continuing anyway");
@@ -54,7 +62,8 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
     // ── 3. Wake-on (cmd24) ─────────────────────────────────────────────────
     if cfg.send_wake {
         let payload = build_cmd24_payload(true);
-        let frame = build_frame_default(0x24, &payload);
+        let frame = build_frame_default(CMD_SLEEP_WAKE, &payload)
+            .map_err(|e| anyhow::anyhow!("build cmd24 frame: {}", e))?;
         if cfg.dry_run {
             info!("dry-run cmd24 wake frame={}", hex::encode_upper(&frame));
         } else {
@@ -66,7 +75,11 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
     }
 
     // ── 4. Push theme assets (image/video widgets) ─────────────────────────
-    push_theme_assets(&theme, cfg.dry_run);
+    {
+        let dry_run = cfg.dry_run;
+        let theme_ref = &theme;
+        tokio::task::block_in_place(|| push_theme_assets(theme_ref, dry_run, None));
+    }
 
     // ── 5. Send cmd3A split frames ─────────────────────────────────────────
     let split_frames = build_theme_frames(&theme)?;
@@ -92,7 +105,7 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
             cfg.port,
             &split_frames,
             cfg.recv_timeout_ms,
-            adb::INTER_FRAME_DELAY.as_millis() as u64,
+            connection::INTER_FRAME_DELAY.as_millis() as u64,
         )
         .await
         .context("sending cmd3A frames")?;
@@ -124,6 +137,12 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
     let mut sent: u32 = 0;
     let mut consecutive_errors: u32 = 0;
     let max_retries = cfg.max_retries;
+
+    // Pin the ctrl_c future outside the loop so the OS signal handler is
+    // registered exactly once. Re-creating it every iteration would leak
+    // a new registration on each cycle.
+    let ctrl_c = tokio::signal::ctrl_c();
+    tokio::pin!(ctrl_c);
 
     loop {
         if cfg.count > 0 && sent >= cfg.count {
@@ -163,14 +182,12 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
             }
         }
 
-        if cfg.count > 0 && sent >= cfg.count {
-            break;
-        }
-
         // Sleep until next cycle, but wake immediately on Ctrl-C.
         tokio::select! {
-            _ = tokio::signal::ctrl_c() => {
-                info!("received SIGINT, shutting down");
+            result = &mut ctrl_c => {
+                if result.is_ok() {
+                    info!("received SIGINT, shutting down");
+                }
                 break;
             }
             _ = tokio::time::sleep(interval) => {}
@@ -187,7 +204,14 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
 ///
 /// Missing local files are not fatal; we assume the asset may already exist on
 /// the device under the same remote name.
-pub fn push_theme_assets(theme: &Theme, dry_run: bool) {
+///
+/// If `cancel` is provided, each push is preceded by a cancellation check;
+/// the function returns early (without error) if the flag is set.
+pub fn push_theme_assets(
+    theme: &Theme,
+    dry_run: bool,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+) {
     if !dry_run && !adb::adb_available() {
         warn!("adb not found in PATH — skipping asset pushes");
         return;
@@ -196,6 +220,14 @@ pub fn push_theme_assets(theme: &Theme, dry_run: bool) {
     let mut pushed_local_paths: HashSet<String> = HashSet::new();
     let mut pushed_remote_names: HashSet<String> = HashSet::new();
     for (i, widget) in theme.widgets.iter().enumerate() {
+        // Check for cancellation before each potential blocking push.
+        if let Some(flag) = cancel
+            && flag.load(std::sync::atomic::Ordering::Relaxed)
+        {
+            info!("push_theme_assets: cancelled at widget[{i}]");
+            return;
+        }
+
         let (local, kind_name) = match &widget.kind {
             WidgetKind::Image { path } => (path.trim(), "image"),
             WidgetKind::Video { path } => (path.trim(), "video"),
@@ -251,7 +283,7 @@ async fn send_metrics_frame(
     collector: &mut MetricCollector,
     sources: &[(String, crate::theme::model::MetricSource)],
 ) -> Result<()> {
-    let readings = collector.collect(sources);
+    let readings = tokio::task::block_in_place(|| collector.collect(sources));
 
     if readings.is_empty() {
         return Err(anyhow::anyhow!("no metric values available"));
@@ -263,7 +295,8 @@ async fn send_metrics_frame(
     let payload =
         build_cmd15_payload(&show_vals).map_err(|e| anyhow::anyhow!("cmd15 build error: {}", e))?;
 
-    let frame = build_frame_default(0x15, &payload);
+    let frame = build_frame_default(CMD_METRIC_UPDATE, &payload)
+        .map_err(|e| anyhow::anyhow!("build cmd15 frame: {}", e))?;
 
     if cfg.dry_run {
         info!(
@@ -302,5 +335,6 @@ pub fn build_theme_frames(theme: &Theme) -> Result<Vec<Vec<u8>>> {
         widget_payloads.push(bytes);
     }
 
-    Ok(split_cmd3a_frames(&widget_payloads))
+    split_cmd3a_frames(&widget_payloads)
+        .map_err(|e| anyhow::anyhow!("split cmd3a frames: {}", e))
 }

@@ -3,7 +3,10 @@
 /// Each widget is encoded as a fixed 494-hex-char string (247 bytes).
 /// The `build_widget_hex` function takes a `WidgetHexParams` struct and
 /// returns the raw bytes of the encoded widget.
-use crate::protocol::{constants::WIDGET_HEX_LEN, frame::encode_ascii_padded_bytes};
+use crate::protocol::{
+    constants::{CMD_CUSTOM_THEME, WIDGET_HEX_LEN},
+    frame::encode_ascii_padded_bytes,
+};
 
 /// Parameters for building a single widget's binary data.
 #[derive(Debug, Clone)]
@@ -134,7 +137,7 @@ pub fn build_widget_hex(p: &WidgetHexParams) -> Result<String, String> {
 ///
 /// Returns `Vec<Vec<u8>>` of complete frames — the first uses theme_type=0x01
 /// (clear + add) and subsequent frames use 0x00 (append).
-pub fn split_cmd3a_frames(widget_list: &[Vec<u8>]) -> Vec<Vec<u8>> {
+pub fn split_cmd3a_frames(widget_list: &[Vec<u8>]) -> Result<Vec<Vec<u8>>, String> {
     use crate::protocol::{cmd::build_cmd3a_payload, frame::build_frame_default};
 
     widget_list
@@ -143,8 +146,8 @@ pub fn split_cmd3a_frames(widget_list: &[Vec<u8>]) -> Vec<Vec<u8>> {
         .map(|(i, w)| {
             let ttype = if i == 0 { 0x01 } else { 0x00 };
             // Pass a slice-of-slice to avoid cloning the 247-byte widget Vec.
-            let payload = build_cmd3a_payload(&[w.as_slice()], ttype);
-            build_frame_default(0x3A, &payload)
+            let payload = build_cmd3a_payload(&[w.as_slice()], ttype)?;
+            build_frame_default(CMD_CUSTOM_THEME, &payload)
         })
         .collect()
 }
@@ -203,7 +206,7 @@ mod tests {
     fn test_split_cmd3a_frames_first_clears() {
         let p = WidgetHexParams::default();
         let w = build_widget_bytes(&p).unwrap();
-        let frames = split_cmd3a_frames(&[w.clone(), w.clone()]);
+        let frames = split_cmd3a_frames(&[w.clone(), w.clone()]).unwrap();
         assert_eq!(frames.len(), 2);
 
         // First frame payload[0] = 0x01 (num_widgets=1), payload[1] = 0x01 (clear+add)

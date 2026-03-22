@@ -20,7 +20,7 @@ fn test_cmd15_four_metrics_matches_reference() {
         ("0E", 15.0f64),
     ];
     let payload = build_cmd15_payload(&vals).expect("build_cmd15_payload");
-    let frame = build_frame_default(0x15, &payload);
+    let frame = build_frame_default(0x15, &payload).expect("build_frame_default");
 
     let expected = from_hex(
         "AAF50023001590010000000000000000000000000000000000000000000000000000002E000F0000",
@@ -76,7 +76,7 @@ fn test_default_widget_hex_matches_reference() {
 fn test_frame_builder_single_metric() {
     let vals = [("00", 40.0f64)];
     let payload = build_cmd15_payload(&vals).expect("build_cmd15_payload");
-    let frame = build_frame_default(0x15, &payload);
+    let frame = build_frame_default(0x15, &payload).expect("build_frame_default");
 
     // AAF5 + len(0x0004=SN+CMD+2payload) + 00 (SN) + 15 (CMD) + 9001 + 00 (tail)
     let expected = from_hex("AAF500040015900100");

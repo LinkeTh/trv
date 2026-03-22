@@ -362,7 +362,21 @@ impl TryFrom<&Widget> for crate::theme::hex::WidgetHexParams {
             } => {
                 p.num_type = u8::from_str_radix(source.show_id(), 16)
                     .map_err(|_| format!("invalid show_id for {:?}", source))?;
+                if unit.len() > 5 {
+                    return Err(format!(
+                        "metric unit too long ({} bytes, max 5): '{}'",
+                        unit.len(),
+                        unit
+                    ));
+                }
                 p.num_unit = unit.clone();
+                if label.len() > 32 {
+                    return Err(format!(
+                        "metric label too long ({} bytes, max 32): '{}'",
+                        label.len(),
+                        label
+                    ));
+                }
                 p.num_text = label.clone();
                 p.show_text = if *show_label { 0x01 } else { 0x00 };
             }

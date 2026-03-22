@@ -7,23 +7,59 @@
 use std::process::Command;
 use std::time::Duration;
 
+/// Default timeout for ADB subcommands (forward, push, settings).
+const ADB_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Run an `adb` command with a timeout.
+///
+/// Spawns the child, polls with `try_wait` until it exits or the timeout
+/// elapses, then kills and reaps the process if still running.
+///
+/// Returns `true` if the process exited successfully within the timeout,
+/// `false` on spawn failure, timeout, or non-zero exit status.
+fn run_adb_with_timeout(args: &[&str], timeout: Duration) -> bool {
+    let mut child = match Command::new("adb")
+        .args(args)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+
+    let poll_interval = Duration::from_millis(50);
+    let mut elapsed = Duration::ZERO;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) => {}
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+
+        if elapsed >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            return false;
+        }
+
+        std::thread::sleep(poll_interval);
+        elapsed += poll_interval;
+    }
+}
+
 /// Run `adb forward tcp:<port> tcp:<port>` to set up port forwarding.
 ///
 /// Returns `true` if the command succeeded, `false` otherwise.
 /// Failures are silently ignored by callers.
 pub fn adb_forward(port: u16) -> bool {
-    let port_str = port.to_string();
-    let tcp_arg = format!("tcp:{}", port_str);
-    match Command::new("adb")
-        .args(["forward", &tcp_arg, &tcp_arg])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .and_then(|mut c| c.wait())
-    {
-        Ok(status) => status.success(),
-        Err(_) => false,
-    }
+    let tcp_arg = format!("tcp:{}", port);
+    run_adb_with_timeout(&["forward", &tcp_arg, &tcp_arg], ADB_TIMEOUT)
 }
 
 /// Push a local file to the device via ADB.
@@ -35,27 +71,12 @@ pub fn adb_push(local_path: &str, remote_path: &str) -> bool {
         return false;
     }
 
-    match Command::new("adb")
-        .args(["push", local_path, remote_path])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .and_then(|mut c| c.wait())
-    {
-        Ok(status) => status.success(),
-        Err(_) => false,
-    }
+    run_adb_with_timeout(&["push", local_path, remote_path], ADB_TIMEOUT)
 }
 
 /// Check if `adb` is available in PATH.
 pub fn adb_available() -> bool {
-    Command::new("adb")
-        .arg("version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    run_adb_with_timeout(&["version"], Duration::from_secs(5))
 }
 
 /// Run `adb shell settings put system <key> <value>`.
@@ -66,20 +87,11 @@ pub fn adb_settings_put_system(key: &str, value: &str) -> bool {
         return false;
     }
 
-    match Command::new("adb")
-        .args(["shell", "settings", "put", "system", key, value])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .and_then(|mut c| c.wait())
-    {
-        Ok(status) => status.success(),
-        Err(_) => false,
-    }
+    run_adb_with_timeout(
+        &["shell", "settings", "put", "system", key, value],
+        ADB_TIMEOUT,
+    )
 }
-
-/// Default inter-frame delay for split cmd3A sends (50 ms).
-pub const INTER_FRAME_DELAY: Duration = Duration::from_millis(50);
 
 fn is_safe_adb_arg(arg: &str) -> bool {
     let trimmed = arg.trim();

@@ -22,6 +22,12 @@ pub const DEFAULT_RECV_TIMEOUT_MS: u64 = 1000;
 /// Default connection timeout (ms).
 pub const DEFAULT_CONNECT_TIMEOUT_MS: u64 = 5000;
 
+/// Default inter-frame delay for split cmd3A sends (50 ms).
+///
+/// Sending one widget frame at a time with this gap prevents TCP fragmentation
+/// issues observed on the device firmware.
+pub const INTER_FRAME_DELAY: Duration = Duration::from_millis(50);
+
 /// Send a single AAF5 frame to the device and return the reply bytes.
 ///
 /// Opens a new TCP connection per call.

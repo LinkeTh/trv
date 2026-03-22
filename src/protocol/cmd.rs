@@ -8,11 +8,14 @@ use crate::protocol::constants::{encode_show_value, show_offsets};
 /// Header: num_widgets(1) + theme_type(1) + widget_data...
 ///
 /// `theme_type` 0x01 = clear existing + add, 0x00 = append.
-pub fn build_cmd3a_payload(widget_payloads: &[&[u8]], theme_type: u8) -> Vec<u8> {
-    debug_assert!(
-        widget_payloads.len() <= u8::MAX as usize,
-        "too many widgets in one cmd3A payload"
-    );
+pub fn build_cmd3a_payload(widget_payloads: &[&[u8]], theme_type: u8) -> Result<Vec<u8>, String> {
+    if widget_payloads.len() > u8::MAX as usize {
+        return Err(format!(
+            "too many widgets in one cmd3A payload: {} (max {})",
+            widget_payloads.len(),
+            u8::MAX
+        ));
+    }
     let num = widget_payloads.len() as u8;
     let mut out = Vec::new();
     out.push(num);
@@ -20,7 +23,7 @@ pub fn build_cmd3a_payload(widget_payloads: &[&[u8]], theme_type: u8) -> Vec<u8>
     for w in widget_payloads {
         out.extend_from_slice(w);
     }
-    out
+    Ok(out)
 }
 
 /// CMD 0x15 — live data update.
@@ -58,7 +61,8 @@ pub fn build_cmd15_payload(show_values: &[(&str, f64)]) -> Result<Vec<u8>, Strin
     for (start, end, field_hex) in &pairs {
         content_chars[*start..*end].copy_from_slice(field_hex.as_bytes());
     }
-    let content_hex = std::str::from_utf8(&content_chars).unwrap();
+    let content_hex =
+        std::str::from_utf8(&content_chars).map_err(|e| format!("utf8 encode error: {}", e))?;
     hex::decode(content_hex).map_err(|e| format!("hex decode error: {}", e))
 }
 

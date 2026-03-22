@@ -3,6 +3,9 @@
 /// Owns the sysinfo `System` and `Components` state for CPU/memory polling.
 /// GPU reads invoke `nvidia-smi` as a subprocess (blocking).
 ///
+/// When both `GpuTemp` and `GpuUsage` are requested, a single batched
+/// `gpu_query_all()` call is used instead of two separate invocations.
+///
 /// Usage:
 /// ```ignore
 /// let mut collector = MetricCollector::new(0.0);
@@ -52,11 +55,24 @@ impl MetricCollector {
     ///
     /// Returns a map of `show_id → value` for every source that could be read.
     /// Missing values are silently omitted (caller decides how to handle gaps).
+    ///
+    /// When both `GpuTemp` and `GpuUsage` are requested, a single batched
+    /// nvidia-smi call (`gpu_query_all`) is used to avoid spawning two
+    /// processes per collection cycle.
     pub fn collect(&mut self, sources: &[(String, MetricSource)]) -> HashMap<String, f64> {
         // Refresh sysinfo state once per cycle
         self.system.refresh_cpu_usage();
         self.system.refresh_memory();
         self.components.refresh(false);
+
+        // Determine whether to batch GPU queries.
+        let needs_gpu_temp = sources.iter().any(|(_, s)| *s == MetricSource::GpuTemp);
+        let needs_gpu_usage = sources.iter().any(|(_, s)| *s == MetricSource::GpuUsage);
+        let gpu_readings = if needs_gpu_temp && needs_gpu_usage {
+            Some(gpu::gpu_query_all())
+        } else {
+            None
+        };
 
         let mut map = HashMap::new();
 
@@ -65,8 +81,20 @@ impl MetricCollector {
                 MetricSource::CpuTemp => cpu::cpu_temp(&self.components, self.temp_offset_c),
                 MetricSource::CpuUsage => Some(cpu::cpu_usage(&self.system)),
                 MetricSource::MemUsage => memory::mem_usage(&self.system),
-                MetricSource::GpuTemp => gpu::gpu_temp(),
-                MetricSource::GpuUsage => gpu::gpu_usage(),
+                MetricSource::GpuTemp => {
+                    if let Some(ref r) = gpu_readings {
+                        r.temp
+                    } else {
+                        gpu::gpu_temp()
+                    }
+                }
+                MetricSource::GpuUsage => {
+                    if let Some(ref r) = gpu_readings {
+                        r.usage
+                    } else {
+                        gpu::gpu_usage()
+                    }
+                }
             };
 
             if let Some(v) = value {

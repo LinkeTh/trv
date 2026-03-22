@@ -49,12 +49,17 @@ pub fn save(cfg: &AppConfig) -> Result<()> {
     std::fs::write(&tmp_path, toml_str)
         .with_context(|| format!("could not write temporary config {:?}", tmp_path))?;
 
-    std::fs::rename(&tmp_path, &path).with_context(|| {
-        format!(
-            "could not atomically replace config {:?} with {:?}",
-            path, tmp_path
-        )
-    })?;
+    std::fs::rename(&tmp_path, &path)
+        .with_context(|| {
+            format!(
+                "could not atomically replace config {:?} with {:?}",
+                path, tmp_path
+            )
+        })
+        .inspect_err(|_| {
+            // Best-effort cleanup of the temp file to avoid leaving it on disk.
+            let _ = std::fs::remove_file(&tmp_path);
+        })?;
 
     Ok(())
 }

@@ -1,5 +1,6 @@
 /// trv — TRV LCD display daemon and TUI theme editor.
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
@@ -117,9 +118,19 @@ enum Commands {
 }
 
 #[tokio::main]
-async fn main() {
+async fn main() -> ExitCode {
     let cli = Cli::parse();
 
+    match run(cli).await {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("error: {:#}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run(cli: Cli) -> anyhow::Result<()> {
     match cli.command {
         Commands::Daemon {
             theme,
@@ -146,23 +157,11 @@ async fn main() {
             // can use its path-based config.  For the daemon we need a file path,
             // so we write the preset to a temp location.
             let theme_path = if let Some(slug) = preset {
-                match resolve_preset_to_tempfile(&slug) {
-                    Ok(p) => p,
-                    Err(e) => {
-                        eprintln!("error: {}", e);
-                        std::process::exit(1);
-                    }
-                }
+                resolve_preset_to_tempfile(&slug).map_err(|e| anyhow::anyhow!("{}", e))?
             } else if let Some(path) = theme {
                 path
             } else {
-                match resolve_theme_path_from_config_or_default() {
-                    Ok(path) => path,
-                    Err(e) => {
-                        eprintln!("error: {}", e);
-                        std::process::exit(1);
-                    }
-                }
+                resolve_theme_path_from_config_or_default().map_err(|e| anyhow::anyhow!("{}", e))?
             };
 
             let theme_path_for_config = theme_path.clone();
@@ -181,10 +180,9 @@ async fn main() {
                 max_retries,
             };
 
-            if let Err(e) = run_daemon(cfg).await {
-                eprintln!("daemon error: {:#}", e);
-                std::process::exit(1);
-            }
+            run_daemon(cfg)
+                .await
+                .map_err(|e| anyhow::anyhow!("daemon error: {:#}", e))?;
 
             if !using_preset
                 && let Err(e) = app_config::set_default_theme_path(&theme_path_for_config)
@@ -194,6 +192,8 @@ async fn main() {
                     e
                 );
             }
+
+            Ok(())
         }
 
         Commands::Tui {
@@ -226,29 +226,18 @@ async fn main() {
 
             // Resolve theme / preset into (Option<Theme>, Option<PathBuf>).
             let (loaded_theme, loaded_path) = if let Some(slug) = preset {
-                match resolve_preset(&slug) {
-                    Ok(t) => (Some(t), None),
-                    Err(e) => {
-                        eprintln!("error: {}", e);
-                        std::process::exit(1);
-                    }
-                }
+                let t = resolve_preset(&slug).map_err(|e| anyhow::anyhow!("{}", e))?;
+                (Some(t), None)
             } else if let Some(path) = theme {
                 (None, Some(path))
             } else {
-                match resolve_theme_path_from_config_or_default() {
-                    Ok(path) => (None, Some(path)),
-                    Err(e) => {
-                        eprintln!("error: {}", e);
-                        std::process::exit(1);
-                    }
-                }
+                let path = resolve_theme_path_from_config_or_default()
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+                (None, Some(path))
             };
 
-            if let Err(e) = trv::tui::run(loaded_theme, loaded_path, host, port, recv_timeout_ms) {
-                eprintln!("tui error: {:#}", e);
-                std::process::exit(1);
-            }
+            trv::tui::run(loaded_theme, loaded_path, host, port, recv_timeout_ms)
+                .map_err(|e| anyhow::anyhow!("tui error: {:#}", e))
         }
 
         Commands::List => {
@@ -271,35 +260,24 @@ async fn main() {
             println!("Load in TUI:     trv tui --preset <slug>");
             println!("Run as daemon:   trv daemon --preset <slug> --adb-forward");
             println!("Save to file:    trv export <slug> > ~/my-theme.toml");
+            Ok(())
         }
 
-        Commands::Export { slug } => {
-            match find_preset(&slug) {
-                None => {
-                    eprintln!(
-                        "error: unknown preset '{}' — run `trv list` to see available presets",
-                        slug
-                    );
-                    std::process::exit(1);
-                }
-                Some(toml_str) => {
-                    // Re-parse and re-serialize for a clean, normalised output.
-                    match parse_theme_toml(toml_str) {
-                        Ok(theme) => match serialize_theme(&theme) {
-                            Ok(out) => print!("{}", out),
-                            Err(e) => {
-                                eprintln!("error serializing preset: {}", e);
-                                std::process::exit(1);
-                            }
-                        },
-                        Err(e) => {
-                            eprintln!("error parsing preset: {}", e);
-                            std::process::exit(1);
-                        }
-                    }
-                }
+        Commands::Export { slug } => match find_preset(&slug) {
+            None => Err(anyhow::anyhow!(
+                "unknown preset '{}' — run `trv list` to see available presets",
+                slug
+            )),
+            Some(toml_str) => {
+                // Re-parse and re-serialize for a clean, normalised output.
+                let theme = parse_theme_toml(toml_str)
+                    .map_err(|e| anyhow::anyhow!("error parsing preset: {}", e))?;
+                let out = serialize_theme(&theme)
+                    .map_err(|e| anyhow::anyhow!("error serializing preset: {}", e))?;
+                print!("{}", out);
+                Ok(())
             }
-        }
+        },
     }
 }
 

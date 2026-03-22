@@ -13,15 +13,18 @@
 /// `cmd`, `sn`, `tail` are raw bytes (single byte each).
 /// `payload` is the raw payload bytes.
 ///
-/// Returns the complete frame as a `Vec<u8>`.
-pub fn build_frame(cmd: u8, payload: &[u8], sn: u8, tail: u8) -> Vec<u8> {
+/// Returns the complete frame as a `Vec<u8>`, or an error if the payload is
+/// too large to fit in the 2-byte length field.
+pub fn build_frame(cmd: u8, payload: &[u8], sn: u8, tail: u8) -> Result<Vec<u8>, String> {
     // length = SN(1) + CMD(1) + payload — tail NOT included
     let length_raw = 1usize + 1usize + payload.len();
-    assert!(
-        length_raw <= u16::MAX as usize,
-        "frame payload too large: {} bytes",
-        payload.len()
-    );
+    if length_raw > u16::MAX as usize {
+        return Err(format!(
+            "frame payload too large: {} bytes (max {})",
+            payload.len(),
+            u16::MAX as usize - 2
+        ));
+    }
     let length: u16 = length_raw as u16;
 
     let mut frame = Vec::with_capacity(2 + 2 + 1 + 1 + payload.len() + 1);
@@ -31,11 +34,11 @@ pub fn build_frame(cmd: u8, payload: &[u8], sn: u8, tail: u8) -> Vec<u8> {
     frame.push(cmd);
     frame.extend_from_slice(payload);
     frame.push(tail);
-    frame
+    Ok(frame)
 }
 
 /// Build a frame with default SN=0x00 and tail=0x00.
-pub fn build_frame_default(cmd: u8, payload: &[u8]) -> Vec<u8> {
+pub fn build_frame_default(cmd: u8, payload: &[u8]) -> Result<Vec<u8>, String> {
     build_frame(cmd, payload, 0x00, 0x00)
 }
 
@@ -93,7 +96,7 @@ mod tests {
         // payload = bytes.fromhex("9001000000000000") = 8 bytes
         // length = 1(sn) + 1(cmd) + 8(payload) = 10 = 0x000A
         let payload = hex::decode("9001000000000000").unwrap();
-        let frame = build_frame(0x15, &payload, 0x00, 0x00);
+        let frame = build_frame(0x15, &payload, 0x00, 0x00).unwrap();
         let hex = hex::encode_upper(&frame);
         assert!(
             hex.starts_with("AAF5000A0015"),
@@ -136,9 +139,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "frame payload too large")]
     fn test_build_frame_rejects_oversized_payload() {
         let payload = vec![0u8; 65_534];
-        let _ = build_frame(0x15, &payload, 0x00, 0x00);
+        let result = build_frame(0x15, &payload, 0x00, 0x00);
+        assert!(result.is_err(), "oversized payload should return Err");
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("too large"),
+            "error message should mention 'too large': {}",
+            msg
+        );
     }
 }

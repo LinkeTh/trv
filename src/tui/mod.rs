@@ -61,16 +61,21 @@ pub fn run(
 
     // Install a panic hook that restores the terminal before printing the
     // panic message, so the terminal is never left in a broken state.
-    let original_hook = std::panic::take_hook();
-    std::panic::set_hook(Box::new(move |info| {
-        let _ = disable_raw_mode();
-        let _ = execute!(
-            std::io::stdout(),
-            DisableBracketedPaste,
-            LeaveAlternateScreen
-        );
-        original_hook(info);
-    }));
+    // We capture the prior hook in an Arc so we can restore it on normal exit,
+    // preventing the closure (and its captures) from leaking permanently.
+    let prior_hook = std::sync::Arc::new(std::panic::take_hook());
+    {
+        let hook = prior_hook.clone();
+        std::panic::set_hook(Box::new(move |info| {
+            let _ = disable_raw_mode();
+            let _ = execute!(
+                std::io::stdout(),
+                DisableBracketedPaste,
+                LeaveAlternateScreen
+            );
+            hook(info);
+        }));
+    }
 
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
@@ -88,6 +93,12 @@ pub fn run(
     use std::sync::atomic::Ordering;
     quit.store(true, Ordering::Relaxed);
     drop(tx);
+
+    // Restore the original panic hook now that the TUI is done.
+    // This drops our terminal-cleanup closure and the Arc.
+    if let Ok(hook) = std::sync::Arc::try_unwrap(prior_hook) {
+        std::panic::set_hook(hook);
+    }
 
     // Always restore terminal
     disable_raw_mode()?;
