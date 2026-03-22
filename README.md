@@ -6,6 +6,22 @@
 - `trv daemon` — pushes a theme and streams live metrics to the device
 - `trv list` / `trv export` — preset helpers
 
+## Screenshots
+
+TR-VISION HOME software reference page:
+
+[https://www.thermalright.com/support/download/](https://www.thermalright.com/support/download/)
+
+![TR-VISION HOME software reference](images/TR-VISION_HOME.png)
+
+`trv tui` editor:
+
+![trv tui editor](images/TRV_TUI.png)
+
+Example LCD output on device:
+
+![trv LCD output](images/TRV_LCD_OUTPUT.png)
+
 ## Platform support
 
 Current installer support is **Arch Linux / CachyOS only**.
@@ -127,3 +143,7 @@ systemctl --user disable trv-daemon.service
 ## Keybinds
 
 - Full command usage and keybindings are in `USAGE.md`.
+
+## License
+
+MIT — see `LICENSE`.

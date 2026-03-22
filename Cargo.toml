@@ -3,6 +3,7 @@ name = "trv"
 version = "0.1.0"
 edition = "2024"
 description = "TRV LCD display daemon and TUI theme editor"
+license = "MIT"
 
 [[bin]]
 name = "trv"
