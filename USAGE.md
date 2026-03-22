@@ -18,6 +18,8 @@ Output:
   minimal          Minimal — CPU temperature and CPU usage only
   clock_metrics    Clock + Metrics — Digital clock at top, CPU temp and CPU usage below
   cpu_gpu          CPU + GPU — 5 metrics: CPU temp, CPU usage, GPU temp, GPU usage, RAM usage
+  all_metrics      All Metrics — Clock + CPU temp/usage + GPU temp/usage + RAM usage
+  video            Video — Full-screen looping video widget using matrix.mp4
 ```
 
 ### 2. Open the TUI with a preset
@@ -105,7 +107,9 @@ Validation errors appear in red at the bottom of the Properties panel.
 When pushing from the TUI, `trv` auto-pushes local image assets first:
 
 - `background.local_path` → `/sdcard/<background.image>`
-- each image widget `path` (local file) → `/sdcard/<basename(path)>`
+- each image/video widget `path` (local file) → `/sdcard/<basename(path)>`
+
+Note: device-side theme activation can lag by up to ~10 seconds after push.
 
 ---
 
@@ -136,6 +140,24 @@ Valid values: `hh:mm:ss`, `date`, `weekday`
 **Text:**  `content`
 
 **Image:**  `path` (local image file path; daemon/TUI push to `/sdcard/` automatically)
+
+**Video:**  `path` (local video file path; daemon/TUI push to `/sdcard/` automatically)
+
+### Video widget notes
+
+- Video playback support is firmware/decoder dependent.
+- Very high-res videos (for example 4K) may fail to play on-device.
+- If video does not play, transcode to a smaller H.264 baseline stream.
+
+Example conversion command:
+
+```bash
+ffmpeg -i input.mp4 \
+  -vf "scale=960:-2:flags=lanczos" \
+  -c:v libx264 -profile:v baseline -level 3.1 -pix_fmt yuv420p \
+  -an -movflags +faststart \
+  output_trv.mp4
+```
 
 ---
 
@@ -240,4 +262,4 @@ height = 100
 alpha = 1.0
 ```
 
-Valid `type` values: `metric`, `clock`, `text`, `image`
+Valid `type` values: `metric`, `clock`, `text`, `image`, `video`

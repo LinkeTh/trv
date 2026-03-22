@@ -69,6 +69,7 @@ pub enum NewWidgetKind {
     Clock,
     Text,
     Image,
+    Video,
 }
 
 impl NewWidgetKind {
@@ -77,6 +78,7 @@ impl NewWidgetKind {
         NewWidgetKind::Clock,
         NewWidgetKind::Text,
         NewWidgetKind::Image,
+        NewWidgetKind::Video,
     ];
 
     pub fn label(self) -> &'static str {
@@ -85,6 +87,7 @@ impl NewWidgetKind {
             NewWidgetKind::Clock => "Clock",
             NewWidgetKind::Text => "Text",
             NewWidgetKind::Image => "Image",
+            NewWidgetKind::Video => "Video",
         }
     }
 }
@@ -900,6 +903,9 @@ impl App {
                     content: "Label".into(),
                 },
                 NewWidgetKind::Image => WidgetKind::Image {
+                    path: String::new(),
+                },
+                NewWidgetKind::Video => WidgetKind::Video {
                     path: String::new(),
                 },
             },

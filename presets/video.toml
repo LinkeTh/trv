@@ -1,0 +1,27 @@
+[meta]
+name = "Video"
+description = "Full-screen looping video widget using matrix.mp4"
+
+[background]
+image = ""
+
+[[widget]]
+type = "video"
+path = "sample.mp4"
+x = 0
+y = 0
+width = 484
+height = 480
+alpha = 1.0
+
+[[widget]]
+type = "clock"
+time_format = "hh:mm:ss"
+x = 128
+y = 16
+width = 228
+height = 56
+text_size = 46
+color = "#E8FFE8"
+alpha = 0.95
+bold = true

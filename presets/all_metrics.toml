@@ -1,0 +1,92 @@
+[meta]
+name = "All Metrics"
+description = "Clock + CPU temp/usage + GPU temp/usage + RAM usage"
+
+[background]
+image = ""
+
+[[widget]]
+type = "clock"
+time_format = "hh:mm:ss"
+x = 86
+y = 10
+width = 312
+height = 64
+text_size = 52
+color = "#FFFFFF"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "cpu_temp"
+unit = "°C"
+label = "CPU"
+show_label = true
+x = 12
+y = 88
+width = 230
+height = 112
+text_size = 52
+color = "#00DDFF"
+alpha = 1.0
+bold = true
+
+[[widget]]
+type = "metric"
+source = "cpu_usage"
+unit = "%"
+label = "CPU"
+show_label = true
+x = 250
+y = 88
+width = 222
+height = 112
+text_size = 52
+color = "#FF8800"
+alpha = 1.0
+bold = true
+
+[[widget]]
+type = "metric"
+source = "gpu_temp"
+unit = "°C"
+label = "GPU"
+show_label = true
+x = 12
+y = 214
+width = 230
+height = 112
+text_size = 52
+color = "#44FF88"
+alpha = 1.0
+bold = true
+
+[[widget]]
+type = "metric"
+source = "gpu_usage"
+unit = "%"
+label = "GPU"
+show_label = true
+x = 250
+y = 214
+width = 222
+height = 112
+text_size = 52
+color = "#FF4488"
+alpha = 1.0
+bold = true
+
+[[widget]]
+type = "metric"
+source = "mem_usage"
+unit = "%"
+label = "RAM"
+show_label = true
+x = 12
+y = 340
+width = 460
+height = 128
+text_size = 56
+color = "#FFDD44"
+alpha = 1.0
+bold = true

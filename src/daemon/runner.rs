@@ -186,7 +186,7 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
 /// Push local theme assets referenced by the theme to device `/sdcard/`.
 ///
 /// - Background: uses `background.local_path` -> `/sdcard/<background.image>`
-/// - Image widgets: uses `widget.path` local file -> `/sdcard/<basename(widget.path)>`
+/// - Image/video widgets: uses `widget.path` local file -> `/sdcard/<basename(widget.path)>`
 ///
 /// Missing local files are not fatal; we assume the asset may already exist on
 /// the device under the same remote name.
@@ -227,11 +227,11 @@ pub fn push_theme_assets(theme: &Theme, dry_run: bool) {
     let mut pushed_local_paths: HashSet<String> = HashSet::new();
     let mut pushed_remote_names: HashSet<String> = HashSet::new();
     for (i, widget) in theme.widgets.iter().enumerate() {
-        let WidgetKind::Image { path } = &widget.kind else {
-            continue;
+        let (local, kind_name) = match &widget.kind {
+            WidgetKind::Image { path } => (path.trim(), "image"),
+            WidgetKind::Video { path } => (path.trim(), "video"),
+            _ => continue,
         };
-
-        let local = path.trim();
         if local.is_empty() {
             continue;
         }
@@ -256,22 +256,22 @@ pub fn push_theme_assets(theme: &Theme, dry_run: bool) {
 
         if !Path::new(local).is_file() {
             info!(
-                "widget[{i}] local image not found: '{local}' — assuming already present as {remote}"
+                "widget[{i}] local {kind_name} not found: '{local}' — assuming already present as {remote}"
             );
             continue;
         }
 
         if dry_run {
-            info!("dry-run adb push widget[{i}] image {local} -> {remote}");
+            info!("dry-run adb push widget[{i}] {kind_name} {local} -> {remote}");
             continue;
         }
 
-        info!("pushing widget[{i}] image: {local} -> {remote}");
+        info!("pushing widget[{i}] {kind_name}: {local} -> {remote}");
         let ok = adb::adb_push(local, &remote);
         if ok {
-            info!("widget[{i}] image pushed OK");
+            info!("widget[{i}] {kind_name} pushed OK");
         } else {
-            warn!("adb push failed for widget[{i}] image — continuing");
+            warn!("adb push failed for widget[{i}] {kind_name} — continuing");
         }
     }
 }

@@ -661,6 +661,7 @@ fn widget_icon(w: &Widget) -> &'static str {
         WidgetKind::Metric { .. } => "▸",
         WidgetKind::Clock { .. } => "⏱",
         WidgetKind::Image { .. } => "▣",
+        WidgetKind::Video { .. } => "▶",
         WidgetKind::Text { .. } => "T",
     }
 }
@@ -676,6 +677,13 @@ fn widget_short_label(w: &Widget) -> String {
                 "Image".to_string()
             } else {
                 format!("Img:{}", path)
+            }
+        }
+        WidgetKind::Video { path } => {
+            if path.is_empty() {
+                "Video".to_string()
+            } else {
+                format!("Vid:{}", path)
             }
         }
         WidgetKind::Text { content } => {

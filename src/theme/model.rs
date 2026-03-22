@@ -118,6 +118,12 @@ pub enum WidgetKind {
         #[serde(default)]
         path: String,
     },
+    /// viewType 0x05 — video loaded from /sdcard/ and played in loop by firmware
+    Video {
+        /// Local video path (daemon auto-pushes to /sdcard/; basename is sent in protocol)
+        #[serde(default)]
+        path: String,
+    },
     /// viewType 0x01 — static text label (encoded in image_path per device firmware)
     Text {
         #[serde(default)]
@@ -212,6 +218,7 @@ impl Widget {
             WidgetKind::Metric { .. } => 0x02,
             WidgetKind::Clock { .. } => 0x03,
             WidgetKind::Image { .. } => 0x04,
+            WidgetKind::Video { .. } => 0x05,
         }
     }
 
@@ -280,6 +287,19 @@ impl TryFrom<&Widget> for crate::theme::hex::WidgetHexParams {
                     ));
                 }
                 p.image_path = remote_name;
+            }
+            WidgetKind::Video { path } => {
+                let remote_name = image_remote_name(path);
+                if remote_name.as_bytes().len() > 150 {
+                    return Err(format!(
+                        "video path basename too long ({} bytes, max 150)",
+                        remote_name.as_bytes().len()
+                    ));
+                }
+                p.image_path = remote_name;
+                // Keep hidden for now: firmware uses play_num as queue weight.
+                // We default to 1 for endless loop semantics with a single video.
+                p.play_num = 0x01;
             }
             WidgetKind::Text { content } => {
                 // view_type=0x01 text content is read from image_path.
@@ -384,6 +404,25 @@ mod tests {
             font: String::new(),
         };
         assert_eq!(metric_widget.view_type(), 0x02);
+
+        let video_widget = Widget {
+            kind: WidgetKind::Video {
+                path: "/tmp/a.mp4".into(),
+            },
+            x: 0,
+            y: 0,
+            width: 0,
+            height: 0,
+            text_size: 48,
+            color: "00DDFF".into(),
+            alpha: 1.0,
+            bold: false,
+            italic: false,
+            underline: false,
+            strikethrough: false,
+            font: String::new(),
+        };
+        assert_eq!(video_widget.view_type(), 0x05);
     }
 
     #[test]
@@ -459,6 +498,32 @@ mod tests {
         let p = crate::theme::hex::WidgetHexParams::try_from(&w).expect("image conversion");
         assert_eq!(p.view_type, 0x04);
         assert_eq!(p.image_path, "logo.png");
+    }
+
+    #[test]
+    fn test_video_widget_uses_basename_and_default_play_num() {
+        let w = Widget {
+            kind: WidgetKind::Video {
+                path: "/tmp/trv/assets/bg.mp4".into(),
+            },
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 100,
+            text_size: 40,
+            color: "FFFFFF".into(),
+            alpha: 1.0,
+            bold: false,
+            italic: false,
+            underline: false,
+            strikethrough: false,
+            font: String::new(),
+        };
+
+        let p = crate::theme::hex::WidgetHexParams::try_from(&w).expect("video conversion");
+        assert_eq!(p.view_type, 0x05);
+        assert_eq!(p.image_path, "bg.mp4");
+        assert_eq!(p.play_num, 0x01);
     }
 
     #[test]

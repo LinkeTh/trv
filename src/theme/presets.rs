@@ -10,6 +10,8 @@ const DASHBOARD_TOML: &str = include_str!("../../presets/dashboard.toml");
 const MINIMAL_TOML: &str = include_str!("../../presets/minimal.toml");
 const CLOCK_METRICS_TOML: &str = include_str!("../../presets/clock_metrics.toml");
 const CPU_GPU_TOML: &str = include_str!("../../presets/cpu_gpu.toml");
+const ALL_METRICS_TOML: &str = include_str!("../../presets/all_metrics.toml");
+const VIDEO_TOML: &str = include_str!("../../presets/video.toml");
 
 /// All bundled presets as `(slug, toml_str)` pairs.
 ///
@@ -20,6 +22,8 @@ pub const ALL_PRESETS: &[(&str, &str)] = &[
     ("minimal", MINIMAL_TOML),
     ("clock_metrics", CLOCK_METRICS_TOML),
     ("cpu_gpu", CPU_GPU_TOML),
+    ("all_metrics", ALL_METRICS_TOML),
+    ("video", VIDEO_TOML),
 ];
 
 /// Return the TOML string for a preset by slug (case-insensitive), or `None`.

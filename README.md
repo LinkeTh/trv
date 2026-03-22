@@ -75,6 +75,16 @@ cargo build --release
 trv tui
 ```
 
+Try presets:
+
+```bash
+trv list
+trv tui --preset all_metrics
+trv tui --preset video
+```
+
+Note: device-side theme activation can lag by up to ~10 seconds after push.
+
 Theme selection behavior:
 
 - `--theme` overrides everything
@@ -87,6 +97,24 @@ After a successful push from TUI, the active theme path is saved as default in:
 
 So both `trv tui` and `trv daemon` stay on the same theme by default.
 
+## Video widget compatibility
+
+Video widgets are supported, but playback depends on the device decoder.
+
+- Prefer H.264 + `yuv420p`
+- Use lower resolution (for example 960x540)
+- Remove audio for maximum compatibility
+
+If a video does not play on the device, transcode it first:
+
+```bash
+ffmpeg -i input.mp4 \
+  -vf "scale=960:-2:flags=lanczos" \
+  -c:v libx264 -profile:v baseline -level 3.1 -pix_fmt yuv420p \
+  -an -movflags +faststart \
+  output_trv.mp4
+```
+
 ## User service commands
 
 ```bash
@@ -96,7 +124,6 @@ systemctl --user stop trv-daemon.service
 systemctl --user disable trv-daemon.service
 ```
 
-## Development notes
+## Keybinds
 
 - Full command usage and keybindings are in `USAGE.md`.
-- Integration tests are in `tests/protocol_reference.rs`.

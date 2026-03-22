@@ -27,6 +27,7 @@ pub fn widget_color(widget: &Widget) -> Color {
         WidgetKind::Metric { .. } => Color::Cyan,
         WidgetKind::Clock { .. } => Color::Yellow,
         WidgetKind::Image { .. } => Color::Green,
+        WidgetKind::Video { .. } => Color::LightMagenta,
         WidgetKind::Text { .. } => Color::White,
     }
 }
@@ -37,6 +38,7 @@ pub fn widget_type_label(widget: &Widget) -> &'static str {
         WidgetKind::Metric { .. } => "MET",
         WidgetKind::Clock { .. } => "CLK",
         WidgetKind::Image { .. } => "IMG",
+        WidgetKind::Video { .. } => "VID",
         WidgetKind::Text { .. } => "TXT",
     }
 }

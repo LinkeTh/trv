@@ -148,6 +148,13 @@ pub fn widget_fields(w: &Widget) -> Vec<Field> {
                 kind: FieldType::Text,
             });
         }
+        WidgetKind::Video { path } => {
+            fields.push(Field {
+                name: "path",
+                value: path.clone(),
+                kind: FieldType::Text,
+            });
+        }
         WidgetKind::Text { content } => {
             fields.push(Field {
                 name: "content",
@@ -220,7 +227,7 @@ pub fn apply_field(w: &mut Widget, field: &str, value: &str) -> Result<(), Strin
             }
         }
         "path" => {
-            if let WidgetKind::Image { path } = &mut w.kind {
+            if let WidgetKind::Image { path } | WidgetKind::Video { path } = &mut w.kind {
                 *path = v.to_string();
             }
         }
@@ -328,6 +335,26 @@ mod tests {
         }
     }
 
+    fn video_widget() -> Widget {
+        Widget {
+            kind: WidgetKind::Video {
+                path: "/tmp/bg.mp4".into(),
+            },
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 50,
+            text_size: 40,
+            color: "FFFFFF".into(),
+            alpha: 1.0,
+            bold: false,
+            italic: false,
+            underline: false,
+            strikethrough: false,
+            font: String::new(),
+        }
+    }
+
     #[test]
     fn apply_x_y() {
         let mut w = metric_widget();
@@ -392,5 +419,20 @@ mod tests {
 
         let color = fields.iter().find(|f| f.name == "color").unwrap();
         assert_eq!(color.kind, FieldType::Color);
+    }
+
+    #[test]
+    fn video_widget_path_field_round_trip() {
+        let mut w = video_widget();
+        let fields = widget_fields(&w);
+        let path = fields.iter().find(|f| f.name == "path").unwrap();
+        assert_eq!(path.value, "/tmp/bg.mp4");
+
+        apply_field(&mut w, "path", "/tmp/new.mp4").unwrap();
+        if let WidgetKind::Video { path } = &w.kind {
+            assert_eq!(path, "/tmp/new.mp4");
+        } else {
+            panic!("wrong kind");
+        }
     }
 }
