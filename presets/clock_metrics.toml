@@ -2,9 +2,6 @@
 name = "Clock + Metrics"
 description = "Digital clock at top, CPU temp and CPU usage below"
 
-[background]
-image = ""
-
 [[widget]]
 type = "clock"
 time_format = "hh:mm:ss"

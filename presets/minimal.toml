@@ -2,9 +2,6 @@
 name = "Minimal"
 description = "CPU temperature and CPU usage only"
 
-[background]
-image = ""
-
 [[widget]]
 type = "metric"
 source = "cpu_temp"

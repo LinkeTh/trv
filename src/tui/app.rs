@@ -1193,7 +1193,7 @@ mod tests {
     use super::*;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-    use crate::theme::model::{Background, ThemeMeta};
+    use crate::theme::model::ThemeMeta;
 
     fn test_widget() -> Widget {
         Widget {
@@ -1221,7 +1221,6 @@ mod tests {
                 name: "test".to_string(),
                 description: String::new(),
             },
-            background: Background::default(),
             widgets: vec![test_widget()],
         }
     }

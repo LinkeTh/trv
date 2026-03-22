@@ -2,9 +2,6 @@
 name = "All Metrics"
 description = "Clock + CPU temp/usage + GPU temp/usage + RAM usage"
 
-[background]
-image = ""
-
 [[widget]]
 type = "clock"
 time_format = "hh:mm:ss"

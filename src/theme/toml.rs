@@ -43,9 +43,6 @@ mod tests {
 name = "Test Theme"
 description = "Unit test theme"
 
-[background]
-image = "test_bg.jpg"
-
 [[widget]]
 type = "clock"
 x = 100
@@ -74,7 +71,6 @@ show_label = true
     fn test_parse_sample_theme() {
         let theme = parse_theme_toml(SAMPLE_TOML).expect("should parse");
         assert_eq!(theme.meta.name, "Test Theme");
-        assert_eq!(theme.background.image, "test_bg.jpg");
         assert_eq!(theme.widgets.len(), 2);
 
         // Check clock widget

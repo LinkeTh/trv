@@ -2,9 +2,6 @@
 name = "Dashboard"
 description = "4-metric 2x2 grid: CPU temp, CPU usage, GPU temp, GPU usage"
 
-[background]
-image = ""
-
 # ── Row 1 ─────────────────────────────────────────────────────────────────────
 
 [[widget]]

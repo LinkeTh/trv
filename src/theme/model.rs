@@ -9,8 +9,6 @@ use serde::{Deserialize, Serialize};
 pub struct Theme {
     #[serde(default)]
     pub meta: ThemeMeta,
-    #[serde(default)]
-    pub background: Background,
     #[serde(rename = "widget", default)]
     pub widgets: Vec<Widget>,
 }
@@ -21,17 +19,6 @@ pub struct ThemeMeta {
     pub name: String,
     #[serde(default)]
     pub description: String,
-}
-
-/// Background image configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Background {
-    /// Filename on the device at /sdcard/
-    #[serde(default)]
-    pub image: String,
-    /// Optional local path: if set, image will be center-cropped and pushed on startup
-    #[serde(default)]
-    pub local_path: String,
 }
 
 /// A single display widget in the theme.

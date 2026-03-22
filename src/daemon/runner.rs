@@ -4,7 +4,7 @@
 ///   1. Load theme from TOML
 ///   2. (optional) ADB forward
 ///   3. (optional) Send cmd24 wake-on
-///   4. (optional) Push background and widget image files via ADB
+///   4. (optional) Push widget image/video files via ADB
 ///   5. Send cmd3A split frames (one widget per frame, 50 ms apart)
 ///   6. Prime CPU usage baseline (sysinfo needs two samples for a delta)
 ///   7. Loop: collect metrics → build cmd15 payload → send frame → sleep
@@ -65,7 +65,7 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
         }
     }
 
-    // ── 4. Push theme assets (background + image widgets) ─────────────────
+    // ── 4. Push theme assets (image/video widgets) ─────────────────────────
     push_theme_assets(&theme, cfg.dry_run);
 
     // ── 5. Send cmd3A split frames ─────────────────────────────────────────
@@ -183,10 +183,7 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-/// Push local theme assets referenced by the theme to device `/sdcard/`.
-///
-/// - Background: uses `background.local_path` -> `/sdcard/<background.image>`
-/// - Image/video widgets: uses `widget.path` local file -> `/sdcard/<basename(widget.path)>`
+/// Push local image/video widget assets referenced by the theme to `/sdcard/`.
 ///
 /// Missing local files are not fatal; we assume the asset may already exist on
 /// the device under the same remote name.
@@ -194,34 +191,6 @@ pub fn push_theme_assets(theme: &Theme, dry_run: bool) {
     if !dry_run && !adb::adb_available() {
         warn!("adb not found in PATH — skipping asset pushes");
         return;
-    }
-
-    if !theme.background.local_path.is_empty() {
-        if theme.background.image.trim().is_empty() {
-            warn!(
-                "background.local_path is set but background.image is empty — skipping background push"
-            );
-        } else {
-            let local = &theme.background.local_path;
-            let remote = format!("/sdcard/{}", theme.background.image);
-            if !Path::new(local).is_file() {
-                info!(
-                    "background local_path not found: '{local}' — assuming already present as {remote}"
-                );
-            } else {
-                if dry_run {
-                    info!("dry-run adb push {local} -> {remote}");
-                } else {
-                    info!("pushing background image: {local} -> {remote}");
-                    let ok = adb::adb_push(local, &remote);
-                    if ok {
-                        info!("background image pushed OK");
-                    } else {
-                        warn!("adb push failed for background image — continuing");
-                    }
-                }
-            }
-        }
     }
 
     let mut pushed_local_paths: HashSet<String> = HashSet::new();

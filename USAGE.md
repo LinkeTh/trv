@@ -106,7 +106,6 @@ Validation errors appear in red at the bottom of the Properties panel.
 
 When pushing from the TUI, `trv` auto-pushes local image assets first:
 
-- `background.local_path` → `/sdcard/<background.image>`
 - each image/video widget `path` (local file) → `/sdcard/<basename(path)>`
 
 Note: device-side theme activation can lag by up to ~10 seconds after push.
@@ -221,10 +220,6 @@ Themes are stored as TOML.  Use `trv export <slug>` to see a full example:
 [meta]
 name = "My Theme"
 description = "Custom layout"
-
-[background]
-image = "bg.jpg"          # filename on device /sdcard/; empty = no background
-local_path = ""           # optional local file to push to /sdcard/<image>
 
 [[widget]]
 type = "metric"

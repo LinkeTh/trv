@@ -2,9 +2,6 @@
 name = "Video"
 description = "Full-screen looping video widget using matrix.mp4"
 
-[background]
-image = ""
-
 [[widget]]
 type = "video"
 path = "sample.mp4"

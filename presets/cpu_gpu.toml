@@ -2,9 +2,6 @@
 name = "CPU + GPU"
 description = "5 metrics: CPU temp, CPU usage, GPU temp, GPU usage, RAM usage with labels"
 
-[background]
-image = ""
-
 # ── CPU row ───────────────────────────────────────────────────────────────────
 
 [[widget]]
