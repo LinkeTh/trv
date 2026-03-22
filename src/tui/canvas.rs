@@ -78,7 +78,7 @@ pub fn render(
 
     if focused {
         block = block.title_bottom(Line::from(Span::styled(
-            " arrows:move  Shift+arrows:x10  j/k:select ",
+            " ←/↑/→/↓:move  ⇧+←/↑/→/↓:x10  j/k:select ",
             Style::default().fg(palette::OVERLAY1),
         )));
     }

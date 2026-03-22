@@ -437,7 +437,10 @@ impl App {
             Overlay::None => {}
             Overlay::Help => {
                 match key.code {
-                    KeyCode::Esc | KeyCode::Char('q') | KeyCode::F(1) | KeyCode::Char('?') => {
+                    KeyCode::Esc | KeyCode::F(1) => {
+                        self.overlay = Overlay::None;
+                    }
+                    KeyCode::Char('q') | KeyCode::Char('?') if no_ctrl_alt(&key) => {
                         self.overlay = Overlay::None;
                     }
                     _ => {}
@@ -484,7 +487,7 @@ impl App {
 
         // Global bindings (no overlay).
         match key.code {
-            KeyCode::Char('q') => {
+            KeyCode::Char('q') if no_ctrl_alt(&key) => {
                 self.should_quit = true;
                 return;
             }
@@ -492,7 +495,11 @@ impl App {
                 self.should_quit = true;
                 return;
             }
-            KeyCode::F(1) | KeyCode::Char('?') => {
+            KeyCode::F(1) => {
+                self.overlay = Overlay::Help;
+                return;
+            }
+            KeyCode::Char('?') if no_ctrl_alt(&key) => {
                 self.overlay = Overlay::Help;
                 return;
             }
@@ -508,10 +515,7 @@ impl App {
                 self.begin_new_theme();
                 return;
             }
-            KeyCode::Char('p') | KeyCode::Char('P')
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT) =>
-            {
+            KeyCode::Char('p') if no_ctrl_alt(&key) => {
                 self.push_to_device();
                 return;
             }
@@ -519,10 +523,7 @@ impl App {
                 self.enable_auto_rotation();
                 return;
             }
-            KeyCode::Char('r') | KeyCode::Char('R')
-                if !key.modifiers.contains(KeyModifiers::CONTROL)
-                    && !key.modifiers.contains(KeyModifiers::ALT) =>
-            {
+            KeyCode::Char('r') if no_ctrl_alt(&key) => {
                 self.rotate_next_manual_orientation();
                 return;
             }
@@ -676,8 +677,10 @@ impl App {
         match key.code {
             KeyCode::Up | KeyCode::Char('k') if ctrl => self.sidebar_move_up(),
             KeyCode::Down | KeyCode::Char('j') if ctrl => self.sidebar_move_down(),
-            KeyCode::Up | KeyCode::Char('k') => self.sidebar_up(),
-            KeyCode::Down | KeyCode::Char('j') => self.sidebar_down(),
+            KeyCode::Up => self.sidebar_up(),
+            KeyCode::Down => self.sidebar_down(),
+            KeyCode::Char('k') if no_ctrl_alt(&key) => self.sidebar_up(),
+            KeyCode::Char('j') if no_ctrl_alt(&key) => self.sidebar_down(),
             KeyCode::Enter => {
                 if self.selected_widget.is_some() {
                     self.focus = Focus::Properties;
@@ -685,11 +688,11 @@ impl App {
                 }
             }
             // Add widget
-            KeyCode::Char('a') => {
+            KeyCode::Char('a') if no_ctrl_alt(&key) => {
                 self.overlay = Overlay::AddWidget { cursor: 0 };
             }
             // Delete widget
-            KeyCode::Char('d') => {
+            KeyCode::Char('d') if no_ctrl_alt(&key) => {
                 if let Some(idx) = self.selected_widget {
                     self.overlay = Overlay::DeleteConfirm { idx };
                 }
@@ -749,8 +752,8 @@ impl App {
             KeyCode::Left => self.move_widget_by(step, 0, true),
             KeyCode::Right => self.move_widget_by(step, 0, false),
             // j/k scroll widget selection in canvas too
-            KeyCode::Char('k') => self.sidebar_up(),
-            KeyCode::Char('j') => self.sidebar_down(),
+            KeyCode::Char('k') if no_ctrl_alt(&key) => self.sidebar_up(),
+            KeyCode::Char('j') if no_ctrl_alt(&key) => self.sidebar_down(),
             _ => {}
         }
     }
@@ -797,13 +800,26 @@ impl App {
             KeyCode::Esc => {
                 self.focus = Focus::Sidebar;
             }
-            KeyCode::Up | KeyCode::Char('k') => {
+            KeyCode::Up => {
                 if self.prop_cursor > 0 {
                     self.prop_cursor -= 1;
                     self.prop_error = None;
                 }
             }
-            KeyCode::Down | KeyCode::Char('j') => {
+            KeyCode::Char('k') if no_ctrl_alt(&key) => {
+                if self.prop_cursor > 0 {
+                    self.prop_cursor -= 1;
+                    self.prop_error = None;
+                }
+            }
+            KeyCode::Down => {
+                let max = self.field_count().saturating_sub(1);
+                if self.prop_cursor < max {
+                    self.prop_cursor += 1;
+                    self.prop_error = None;
+                }
+            }
+            KeyCode::Char('j') if no_ctrl_alt(&key) => {
                 let max = self.field_count().saturating_sub(1);
                 if self.prop_cursor < max {
                     self.prop_cursor += 1;
@@ -813,7 +829,7 @@ impl App {
             KeyCode::Enter => {
                 self.activate_property_editor();
             }
-            KeyCode::Char(' ') => {
+            KeyCode::Char(' ') if no_ctrl_alt(&key) => {
                 if let Some(field) = self.current_field()
                     && field.kind == FieldType::Toggle
                 {
@@ -943,12 +959,22 @@ impl App {
         {
             match key.code {
                 KeyCode::Esc => close = true,
-                KeyCode::Up | KeyCode::Char('k') => {
+                KeyCode::Up => {
                     if *cursor > 0 {
                         *cursor -= 1;
                     }
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
+                KeyCode::Char('k') if no_ctrl_alt(&key) => {
+                    if *cursor > 0 {
+                        *cursor -= 1;
+                    }
+                }
+                KeyCode::Down => {
+                    if *cursor + 1 < options.len() {
+                        *cursor += 1;
+                    }
+                }
+                KeyCode::Char('j') if no_ctrl_alt(&key) => {
                     if *cursor + 1 < options.len() {
                         *cursor += 1;
                     }
@@ -1027,25 +1053,49 @@ impl App {
                     KeyCode::Tab => {
                         *input_active = true;
                     }
-                    KeyCode::Left | KeyCode::Char('h') => {
+                    KeyCode::Left => {
                         if *cursor > 0 {
                             *cursor -= 1;
                             sync_color_input_from_cursor(*cursor, input);
                         }
                     }
-                    KeyCode::Right | KeyCode::Char('l') => {
+                    KeyCode::Char('h') if no_ctrl_alt(&key) => {
+                        if *cursor > 0 {
+                            *cursor -= 1;
+                            sync_color_input_from_cursor(*cursor, input);
+                        }
+                    }
+                    KeyCode::Right => {
                         if *cursor + 1 < len {
                             *cursor += 1;
                             sync_color_input_from_cursor(*cursor, input);
                         }
                     }
-                    KeyCode::Up | KeyCode::Char('k') => {
+                    KeyCode::Char('l') if no_ctrl_alt(&key) => {
+                        if *cursor + 1 < len {
+                            *cursor += 1;
+                            sync_color_input_from_cursor(*cursor, input);
+                        }
+                    }
+                    KeyCode::Up => {
                         if *cursor >= cols {
                             *cursor -= cols;
                             sync_color_input_from_cursor(*cursor, input);
                         }
                     }
-                    KeyCode::Down | KeyCode::Char('j') => {
+                    KeyCode::Char('k') if no_ctrl_alt(&key) => {
+                        if *cursor >= cols {
+                            *cursor -= cols;
+                            sync_color_input_from_cursor(*cursor, input);
+                        }
+                    }
+                    KeyCode::Down => {
+                        if *cursor + cols < len {
+                            *cursor += cols;
+                            sync_color_input_from_cursor(*cursor, input);
+                        }
+                    }
+                    KeyCode::Char('j') if no_ctrl_alt(&key) => {
                         if *cursor + cols < len {
                             *cursor += cols;
                             sync_color_input_from_cursor(*cursor, input);
@@ -1100,12 +1150,22 @@ impl App {
                 KeyCode::Esc => {
                     self.overlay = Overlay::None;
                 }
-                KeyCode::Up | KeyCode::Char('k') => {
+                KeyCode::Up => {
                     if *cursor > 0 {
                         *cursor -= 1;
                     }
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
+                KeyCode::Char('k') if no_ctrl_alt(&key) => {
+                    if *cursor > 0 {
+                        *cursor -= 1;
+                    }
+                }
+                KeyCode::Down => {
+                    if *cursor + 1 < len {
+                        *cursor += 1;
+                    }
+                }
+                KeyCode::Char('j') if no_ctrl_alt(&key) => {
                     if *cursor + 1 < len {
                         *cursor += 1;
                     }
@@ -1174,10 +1234,17 @@ impl App {
             return;
         };
         match key.code {
-            KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+            KeyCode::Esc => {
                 self.overlay = Overlay::None;
             }
-            KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Enter => {
+            KeyCode::Char('n') | KeyCode::Char('N') if no_ctrl_alt(&key) => {
+                self.overlay = Overlay::None;
+            }
+            KeyCode::Char('y') | KeyCode::Char('Y') if no_ctrl_alt(&key) => {
+                self.overlay = Overlay::None;
+                self.delete_widget(idx);
+            }
+            KeyCode::Enter => {
                 self.overlay = Overlay::None;
                 self.delete_widget(idx);
             }
@@ -1951,6 +2018,10 @@ fn metric_value_to_spark_sample(key: &str, value: f64) -> f64 {
     }
 }
 
+fn no_ctrl_alt(key: &KeyEvent) -> bool {
+    !key.modifiers.contains(KeyModifiers::CONTROL) && !key.modifiers.contains(KeyModifiers::ALT)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2298,18 +2369,6 @@ mod tests {
             }
             _ => panic!("expected new theme overlay"),
         }
-    }
-
-    #[test]
-    fn uppercase_push_key_still_works() {
-        let mut app = App::new(None, None, "127.0.0.1".to_string(), 22222, 1000);
-
-        app.handle_key(KeyEvent::new(KeyCode::Char('P'), KeyModifiers::empty()));
-
-        assert_eq!(
-            app.push_status,
-            PushStatus::Err("no theme loaded".to_string())
-        );
     }
 
     #[test]

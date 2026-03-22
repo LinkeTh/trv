@@ -127,7 +127,7 @@ fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
 
     if focused {
         block = block.title_bottom(Line::from(Span::styled(
-            " ↑↓:select  Enter:edit  a:add  d:del  ^↑/↓:reorder ",
+            " ↑/↓:select  ⏎:edit  a:add  d:del  Ctrl+↑/↓:reorder ",
             Style::default().fg(palette::OVERLAY1),
         )));
     }
@@ -192,9 +192,9 @@ fn draw_properties(f: &mut Frame, app: &App, area: Rect) {
 
     if focused {
         let hint = if app.prop_input.is_some() {
-            " Enter:confirm  Esc:cancel "
+            " ⏎:confirm  Esc:cancel "
         } else {
-            " Enter:edit  Space:toggle  ↑↓:navigate "
+            " ⏎:edit  ␣:toggle  ↑/↓:select "
         };
         block = block.title_bottom(Line::from(Span::styled(
             hint,
@@ -366,9 +366,9 @@ fn draw_log_panel(f: &mut Frame, app: &App, area: Rect) {
     let title = format!(" Log ({}) ", app.log_lines.len());
 
     let hint = if app.log_is_scrolled() {
-        format!(" PgUp/PgDn:scroll  +{} ", app.log_scroll)
+        format!(" ⇞/⇟:scroll  +{} ", app.log_scroll)
     } else {
-        " PgUp/PgDn:scroll ".to_string()
+        " ⇞/⇟:scroll ".to_string()
     };
 
     let block = Block::default()
@@ -434,8 +434,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         Focus::Properties => "Properties",
     };
 
-    let hints =
-        " ^n:new  ^s:save  ^o:open  p:push  r:rotate  ^r:auto-rotate  Tab:focus  q:quit  ?:help";
+    let hints = " Ctrl+n:new  Ctrl+s:save  Ctrl+o:open  p:push  r:rotate  Ctrl+r:auto-rotate  ⇥:focus  q:quit  ?:help";
 
     let left = Span::styled(
         theme_indicator,
@@ -489,10 +488,10 @@ fn draw_help_overlay(f: &mut Frame, area: Rect) {
         ("a", "Add new widget (sidebar)"),
         ("d", "Delete selected widget"),
         ("Ctrl+↑ / Ctrl+↓", "Reorder widget in list"),
-        ("← ↑ → ↓", "Move widget (canvas, 1px)"),
-        ("Shift+arrows", "Move widget (canvas, 10px)"),
+        ("←/↑/→/↓", "Move widget (canvas, 1px)"),
+        ("Shift+←/↑/→/↓", "Move widget (canvas, 10px)"),
         ("p", "Push theme to device"),
-        ("r", "Cycle raw rotation code (00→01→02→03)"),
+        ("r", "Cycle rotations"),
         ("Ctrl+n", "Create new theme"),
         ("Ctrl+r", "Enable auto-rotation on device"),
         ("Ctrl+s", "Save theme explorer (.toml)"),
@@ -626,9 +625,9 @@ fn draw_color_picker_overlay(
     let mut lines: Vec<Line> = Vec::new();
 
     let hint = if input_active {
-        " Enter:apply  Tab:palette  Esc:cancel"
+        " ⏎:apply  ⇥:palette  Esc:cancel"
     } else {
-        " Arrows/hjkl:select  Enter:apply  Tab:hex  Esc:cancel"
+        " ←/↑/→/↓/hjkl:select  ⏎:apply  ⇥:hex  Esc:cancel"
     };
     lines.push(Line::from(Span::styled(
         hint,
@@ -729,7 +728,7 @@ fn draw_delete_confirm_overlay(f: &mut Frame, area: Rect, idx: usize, app: &App)
                     .fg(palette::GREEN)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::styled("/Enter", Style::default().fg(palette::TEXT)),
+            Span::styled("/⏎", Style::default().fg(palette::TEXT)),
             Span::styled(" — yes      ", Style::default().fg(palette::OVERLAY1)),
             Span::styled(
                 "n",
@@ -836,7 +835,7 @@ fn draw_new_theme_overlay(f: &mut Frame, area: Rect, state: &NewThemeDialogState
 
     f.render_widget(
         Paragraph::new(Line::from(Span::styled(
-            " Enter:next/create  Tab:next field  Shift+Tab:prev  Esc:cancel",
+            " ⏎:next/create  ⇥:next  ⇧⇥:prev  Esc:cancel",
             Style::default().fg(palette::OVERLAY1),
         ))),
         sections[3],
@@ -918,12 +917,12 @@ fn draw_save_overlay(f: &mut Frame, area: Rect, state: &SaveDialogState) {
         ))
     } else if state.input_active {
         Line::from(Span::styled(
-            " Enter:save  Tab:list  Esc:cancel",
+            " ⏎:save  ⇥:list  Esc:cancel",
             Style::default().fg(palette::OVERLAY1),
         ))
     } else {
         Line::from(Span::styled(
-            " Enter:pick/open dir  Backspace:parent  .:hidden  Tab:path  Esc:cancel",
+            " ⏎:pick/open dir  Backspace:parent  .:hidden  ⇥:path  Esc:cancel",
             Style::default().fg(palette::OVERLAY1),
         ))
     };
@@ -976,7 +975,7 @@ fn draw_open_overlay(f: &mut Frame, area: Rect, state: &OpenDialogState) {
         ))
     } else {
         Line::from(Span::styled(
-            " Enter:open  Backspace:parent  .:hidden  Esc:cancel",
+            " ⏎:open  Backspace:parent  .:hidden  Esc:cancel",
             Style::default().fg(palette::OVERLAY1),
         ))
     };

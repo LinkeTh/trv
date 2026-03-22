@@ -1,7 +1,7 @@
 /// Single-line text input widget with cursor, backspace, and char insertion.
 ///
 /// Used for in-place field editing in the Properties panel and for path
-/// dialogs (Ctrl+s / Ctrl+o).
+/// dialogs (Ctrl+n / Ctrl+s / Ctrl+o).
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 /// Result of processing a key event through a [`TextInput`].
