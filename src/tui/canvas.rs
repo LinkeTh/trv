@@ -1,6 +1,6 @@
-/// Canvas panel — braille-based pixel preview of the 484×480 display.
+/// Canvas panel — braille-based pixel preview of the device display.
 ///
-/// The device display is 484 wide × 480 tall.  We map it to the available
+/// The preview uses the active device display dimensions. We map it to the available
 /// terminal area by computing a scale factor, then draw widget bounding boxes
 /// as thin border rectangles, color-coded by widget type.
 ///
@@ -19,9 +19,9 @@ use crate::theme::model::{MetricSource, Theme, TimeFormat, Widget, WidgetKind, i
 
 use super::palette;
 
-/// Device display dimensions.
-pub const DISPLAY_W: u16 = 484;
-pub const DISPLAY_H: u16 = 480;
+/// Default display dimensions used when device size detection is unavailable.
+pub const DEFAULT_DISPLAY_W: u16 = 484;
+pub const DEFAULT_DISPLAY_H: u16 = 480;
 
 /// Return the terminal `Color` used to represent each widget type.
 pub fn widget_color(widget: &Widget) -> Color {
@@ -55,6 +55,7 @@ pub fn render(
     theme: Option<&Theme>,
     selected_idx: Option<usize>,
     focused: bool,
+    display_size: (u16, u16),
 ) {
     let border_style = if focused {
         Style::default()
@@ -90,17 +91,20 @@ pub fn render(
         return;
     }
 
+    let display_w = display_size.0.max(1);
+    let display_h = display_size.1.max(1);
+
     // Scale factors: device pixels → terminal cells
     // Terminal cells are roughly 2× taller than wide, so we apply a 2.0
     // aspect-ratio correction on the vertical axis.
-    let scale_x = inner.width as f32 / DISPLAY_W as f32;
-    let scale_y = inner.height as f32 / DISPLAY_H as f32;
+    let scale_x = inner.width as f32 / display_w as f32;
+    let scale_y = inner.height as f32 / display_h as f32;
     // Use the smaller scale to fit the whole display; preserve aspect ratio.
     let scale = scale_x.min(scale_y * 2.0);
 
     // Compute the pixel area used within `inner` (centered).
-    let canvas_w = ((DISPLAY_W as f32) * scale) as u16;
-    let canvas_h = ((DISPLAY_H as f32) * (scale / 2.0)) as u16;
+    let canvas_w = ((display_w as f32) * scale) as u16;
+    let canvas_h = ((display_h as f32) * (scale / 2.0)) as u16;
     let off_x = inner.x + (inner.width.saturating_sub(canvas_w)) / 2;
     let off_y = inner.y + (inner.height.saturating_sub(canvas_h)) / 2;
 
@@ -115,14 +119,14 @@ pub fn render(
         false,
     );
 
-    // Draw a "484×480" label in the bottom-right corner of the device outline
-    let label = "484×480";
+    // Draw a "<W>×<H>" label in the bottom-right corner of the device outline.
+    let label = format!("{}x{}", display_w, display_h);
     if canvas_w >= label.len() as u16 + 2 && canvas_h >= 2 {
         let lbl_x = off_x + canvas_w - label.len() as u16 - 1;
         let lbl_y = off_y + canvas_h - 1;
         if lbl_y < inner.y + inner.height {
             let p = Paragraph::new(Line::from(Span::styled(
-                label,
+                &label,
                 Style::default().fg(palette::OVERLAY1),
             )));
             f.render_widget(p, Rect::new(lbl_x, lbl_y, label.len() as u16, 1));

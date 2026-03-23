@@ -280,6 +280,9 @@ pub struct App {
     pub port: u16,
     pub recv_timeout_ms: u64,
 
+    /// Canvas preview device dimensions (width, height).
+    pub display_size: (u16, u16),
+
     // ── Live metrics ──────────────────────────────────────────────────────────
     /// Most recent metrics snapshot from the background poller.
     pub metrics: MetricsSnapshot,

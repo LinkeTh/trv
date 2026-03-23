@@ -1,4 +1,18 @@
+use std::sync::OnceLock;
+
 use super::*;
+
+const DEFAULT_DISPLAY_SIZE: (u16, u16) = (
+    crate::tui::canvas::DEFAULT_DISPLAY_W,
+    crate::tui::canvas::DEFAULT_DISPLAY_H,
+);
+
+static DETECTED_DISPLAY_SIZE: OnceLock<(u16, u16)> = OnceLock::new();
+
+fn detect_display_size() -> (u16, u16) {
+    *DETECTED_DISPLAY_SIZE
+        .get_or_init(|| crate::device::adb::adb_display_size().unwrap_or(DEFAULT_DISPLAY_SIZE))
+}
 
 impl App {
     pub fn new(
@@ -36,6 +50,7 @@ impl App {
             host,
             port,
             recv_timeout_ms,
+            display_size: detect_display_size(),
             metrics: MetricsSnapshot {
                 values: HashMap::new(),
                 samples: HashMap::new(),
@@ -43,6 +58,10 @@ impl App {
             metric_history: HashMap::new(),
         };
         app.log_event("TUI started");
+        app.log_event(format!(
+            "Canvas display size: {}x{}",
+            app.display_size.0, app.display_size.1
+        ));
         app
     }
 

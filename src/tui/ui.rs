@@ -2,7 +2,7 @@
 ///
 /// Layout (horizontal split):
 ///   ┌─ Sidebar (22%) ─┬───── Canvas (56%) ─────┬─ Properties (22%) ─┐
-///   │ Widget list     │  484×480 preview        │ Editable fields    │
+///   │ Widget list     │  device preview          │ Editable fields    │
 ///   └─────────────────┴─────────────────────────┴────────────────────┘
 ///   ┤ Metrics preview (25%) │ Log panel (75%, 5 rows visible)          │
 ///   ┤ Status bar (1 row at bottom)                                    │
@@ -88,6 +88,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         app.theme.as_ref(),
         app.selected_widget,
         app.focus == Focus::Canvas,
+        app.display_size,
     );
     draw_properties(f, app, props_area);
     draw_metric_preview_panel(f, app, metrics_area);
