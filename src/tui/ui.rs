@@ -367,9 +367,9 @@ fn draw_log_panel(f: &mut Frame, app: &App, area: Rect) {
     let title = format!(" Log ({}) ", app.log_lines.len());
 
     let hint = if app.log_is_scrolled() {
-        format!(" ⇞/⇟:scroll  +{} ", app.log_scroll)
+        format!(" PageUp/PageDown:scroll  +{} ", app.log_scroll)
     } else {
-        " ⇞/⇟:scroll ".to_string()
+        " PageUp/PageDown:scroll ".to_string()
     };
 
     let block = Block::default()
