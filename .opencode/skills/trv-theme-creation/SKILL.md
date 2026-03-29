@@ -95,10 +95,18 @@ All fields below are **optional** and fall back to the listed defaults when omit
 | `source` value | Metric | Display precision | Suggested unit |
 |---|---|---|---|
 | `"cpu_temp"` | CPU temperature | 1 decimal (tenths) | `"°C"` |
+| `"cpu_freq"` | CPU frequency | integer | `"MHz"` or compact `"M"` |
 | `"cpu_usage"` | CPU utilization | 1 decimal (tenths) | `"%"` |
 | `"gpu_temp"` | GPU temperature | integer | `"°C"` |
+| `"gpu_freq"` | GPU frequency | integer | `"MHz"` or compact `"M"` |
 | `"gpu_usage"` | GPU utilization | integer | `"%"` |
+| `"fan_speed"` | Fan speed | integer | `"RPM"` |
+| `"liquid_temp"` | Liquid/water temperature | integer | `"°C"` |
 | `"mem_usage"` | Memory usage | integer | `"%"` |
+| `"net_down"` | Aggregate network download | integer | `"KB/s"` or compact `"KB"` |
+| `"net_up"` | Aggregate network upload | integer | `"KB/s"` or compact `"KB"` |
+| `"disk_read"` | Aggregate disk read throughput | integer | `"KB/s"` or compact `"KB"` |
+| `"disk_write"` | Aggregate disk write throughput | integer | `"KB/s"` or compact `"KB"` |
 
 Decimal precision is fixed per source by the firmware protocol; there is no per-widget decimal override.
 
@@ -252,6 +260,8 @@ font = "harmonyos_light"
 - Theme files are TOML and typically live in `~/.config/trv/themes/`.
 - Image/video assets are usually in `~/.config/trv/themes/assets/`.
 - If explicit metric labels are not desired, set `show_label = false` / `label = ""` and add dedicated `text` widgets as labels instead.
+- Built-in stress-test preset: `full_system` (13 metrics) demonstrates a full-canvas
+  non-overlapping layout strategy for dense dashboards.
 
 ---
 
@@ -310,6 +320,11 @@ Practical layout rules:
 - Avoid placing text over faces or bright highlights in character art.
 - Align labels and values in clear columns/rows.
 - Keep consistent text sizes for comparable metrics.
+- For dense dashboards (10+ metrics), prefer `show_label = false` on metric widgets
+  and pair each metric with a dedicated `text` label widget above it.
+- Remember `metric.unit` is max 5 UTF-8 bytes; use compact units (`M`, `KB`, `RPM`, `%`)
+  when needed to prevent clipping/overlap.
+- Use the full 484x480 canvas height; avoid stacking all widgets only in the top half.
 
 ### 4) Validate Locally (Dry Run)
 

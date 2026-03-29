@@ -96,6 +96,7 @@ Try presets:
 ```bash
 trv list
 trv tui --preset all_metrics
+trv tui --preset full_system
 trv tui --preset video
 ```
 

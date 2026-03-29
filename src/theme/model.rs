@@ -263,10 +263,18 @@ impl TimeFormat {
 #[serde(rename_all = "snake_case")]
 pub enum MetricSource {
     CpuTemp,
+    CpuFreq,
     GpuTemp,
+    GpuFreq,
+    FanSpeed,
+    LiquidTemp,
     CpuUsage,
     GpuUsage,
     MemUsage,
+    NetDown,
+    NetUp,
+    DiskRead,
+    DiskWrite,
 }
 
 impl MetricSource {
@@ -274,16 +282,27 @@ impl MetricSource {
     pub fn show_id(&self) -> &'static str {
         match self {
             MetricSource::CpuTemp => "00",
+            MetricSource::CpuFreq => "07",
             MetricSource::CpuUsage => "05",
             MetricSource::MemUsage => "06",
             MetricSource::GpuTemp => "0D",
             MetricSource::GpuUsage => "0E",
+            MetricSource::GpuFreq => "0F",
+            MetricSource::FanSpeed => "09",
+            MetricSource::LiquidTemp => "10",
+            MetricSource::NetDown => "23",
+            MetricSource::NetUp => "24",
+            MetricSource::DiskRead => "1E",
+            MetricSource::DiskWrite => "1F",
         }
     }
 
     /// Returns true if this source reads a temperature value.
     pub fn is_temperature(&self) -> bool {
-        matches!(self, MetricSource::CpuTemp | MetricSource::GpuTemp)
+        matches!(
+            self,
+            MetricSource::CpuTemp | MetricSource::GpuTemp | MetricSource::LiquidTemp
+        )
     }
 }
 

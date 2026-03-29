@@ -3,10 +3,18 @@ use super::*;
 #[test]
 fn test_metric_source_show_ids() {
     assert_eq!(MetricSource::CpuTemp.show_id(), "00");
+    assert_eq!(MetricSource::CpuFreq.show_id(), "07");
     assert_eq!(MetricSource::CpuUsage.show_id(), "05");
     assert_eq!(MetricSource::MemUsage.show_id(), "06");
+    assert_eq!(MetricSource::FanSpeed.show_id(), "09");
     assert_eq!(MetricSource::GpuTemp.show_id(), "0D");
     assert_eq!(MetricSource::GpuUsage.show_id(), "0E");
+    assert_eq!(MetricSource::GpuFreq.show_id(), "0F");
+    assert_eq!(MetricSource::LiquidTemp.show_id(), "10");
+    assert_eq!(MetricSource::DiskRead.show_id(), "1E");
+    assert_eq!(MetricSource::DiskWrite.show_id(), "1F");
+    assert_eq!(MetricSource::NetDown.show_id(), "23");
+    assert_eq!(MetricSource::NetUp.show_id(), "24");
 }
 
 #[test]

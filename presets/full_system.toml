@@ -1,0 +1,340 @@
+[meta]
+name = "Full System"
+description = "Full-screen 13-metric dashboard with non-overlapping labels and values"
+
+[[widget]]
+type = "clock"
+time_format = "hh:mm:ss"
+x = 10
+y = 8
+width = 464
+height = 68
+text_size = 62
+color = "#FFFFFF"
+alpha = 1.0
+font = "ni7seg"
+
+[[widget]]
+type = "text"
+content = "CPU TEMP"
+x = 10
+y = 88
+width = 150
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "cpu_temp"
+unit = "C"
+label = ""
+show_label = false
+x = 10
+y = 110
+width = 150
+height = 50
+text_size = 26
+color = "#F9E2AF"
+alpha = 1.0
+
+[[widget]]
+type = "text"
+content = "CPU FREQ"
+x = 167
+y = 88
+width = 150
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "cpu_freq"
+unit = "M"
+label = ""
+show_label = false
+x = 167
+y = 110
+width = 150
+height = 50
+text_size = 26
+color = "#89B4FA"
+alpha = 1.0
+
+[[widget]]
+type = "text"
+content = "CPU LOAD"
+x = 324
+y = 88
+width = 150
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "cpu_usage"
+unit = "%"
+label = ""
+show_label = false
+x = 324
+y = 110
+width = 150
+height = 50
+text_size = 26
+color = "#74C7EC"
+alpha = 1.0
+
+[[widget]]
+type = "text"
+content = "RAM USAGE"
+x = 10
+y = 164
+width = 150
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "mem_usage"
+unit = "%"
+label = ""
+show_label = false
+x = 10
+y = 186
+width = 150
+height = 50
+text_size = 26
+color = "#94E2D5"
+alpha = 1.0
+
+[[widget]]
+type = "text"
+content = "GPU TEMP"
+x = 167
+y = 164
+width = 150
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "gpu_temp"
+unit = "C"
+label = ""
+show_label = false
+x = 167
+y = 186
+width = 150
+height = 50
+text_size = 26
+color = "#A6E3A1"
+alpha = 1.0
+
+[[widget]]
+type = "text"
+content = "GPU FREQ"
+x = 324
+y = 164
+width = 150
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "gpu_freq"
+unit = "M"
+label = ""
+show_label = false
+x = 324
+y = 186
+width = 150
+height = 50
+text_size = 26
+color = "#B4BEFE"
+alpha = 1.0
+
+[[widget]]
+type = "text"
+content = "GPU LOAD"
+x = 10
+y = 240
+width = 150
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "gpu_usage"
+unit = "%"
+label = ""
+show_label = false
+x = 10
+y = 262
+width = 150
+height = 50
+text_size = 26
+color = "#CBA6F7"
+alpha = 1.0
+
+[[widget]]
+type = "text"
+content = "FAN RPM"
+x = 167
+y = 240
+width = 150
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "fan_speed"
+unit = "RPM"
+label = ""
+show_label = false
+x = 167
+y = 262
+width = 150
+height = 50
+text_size = 26
+color = "#FAB387"
+alpha = 1.0
+
+[[widget]]
+type = "text"
+content = "AIO TEMP"
+x = 324
+y = 240
+width = 150
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "liquid_temp"
+unit = "C"
+label = ""
+show_label = false
+x = 324
+y = 262
+width = 150
+height = 50
+text_size = 26
+color = "#89DCEB"
+alpha = 1.0
+
+[[widget]]
+type = "text"
+content = "NET DOWN"
+x = 10
+y = 316
+width = 150
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "net_down"
+unit = "KB"
+label = ""
+show_label = false
+x = 10
+y = 338
+width = 150
+height = 50
+text_size = 26
+color = "#F5C2E7"
+alpha = 1.0
+
+[[widget]]
+type = "text"
+content = "NET UP"
+x = 167
+y = 316
+width = 150
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "net_up"
+unit = "KB"
+label = ""
+show_label = false
+x = 167
+y = 338
+width = 150
+height = 50
+text_size = 26
+color = "#EBA0AC"
+alpha = 1.0
+
+[[widget]]
+type = "text"
+content = "DISK READ"
+x = 324
+y = 316
+width = 150
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "disk_read"
+unit = "KB"
+label = ""
+show_label = false
+x = 324
+y = 338
+width = 150
+height = 50
+text_size = 26
+color = "#F38BA8"
+alpha = 1.0
+
+[[widget]]
+type = "text"
+content = "DISK WRITE"
+x = 10
+y = 392
+width = 464
+height = 22
+text_size = 16
+color = "#CDD6F4"
+alpha = 1.0
+
+[[widget]]
+type = "metric"
+source = "disk_write"
+unit = "KB"
+label = ""
+show_label = false
+x = 10
+y = 414
+width = 464
+height = 50
+text_size = 30
+color = "#FFDD44"
+alpha = 1.0

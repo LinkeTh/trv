@@ -5,6 +5,8 @@
 ///   2. hwmon coretemp/k10temp — any sensor (per-core, take max)
 ///   3. thermal_zone with type "x86_pkg_temp"
 ///   4. Any hwmon sensor with a sane range (fallback)
+use std::path::Path;
+
 use sysinfo::{Components, System};
 
 /// Read CPU package temperature from sysinfo Components.
@@ -92,8 +94,123 @@ pub fn cpu_usage(system: &System) -> f64 {
     usage.clamp(0.0, 100.0)
 }
 
+/// Read average CPU frequency in MHz.
+pub fn cpu_freq(system: &System) -> Option<f64> {
+    if let Some(v) = sysinfo_cpu_freq(system) {
+        return Some(v);
+    }
+    if let Some(v) = sysfs_cpu_freq_mhz() {
+        return Some(v);
+    }
+    proc_cpuinfo_freq_mhz()
+}
+
+fn sysinfo_cpu_freq(system: &System) -> Option<f64> {
+    let cpus = system.cpus();
+    if cpus.is_empty() {
+        return None;
+    }
+
+    let total: u64 = cpus.iter().map(|cpu| cpu.frequency()).sum();
+    let avg = total as f64 / cpus.len() as f64;
+    if avg > 1.0 { Some(avg) } else { None }
+}
+
+fn sysfs_cpu_freq_mhz() -> Option<f64> {
+    let base = Path::new("/sys/devices/system/cpu");
+    let entries = std::fs::read_dir(base).ok()?;
+
+    let mut sum_mhz = 0.0;
+    let mut count = 0_u64;
+
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        if !is_cpu_dir_name(name) {
+            continue;
+        }
+
+        let cpufreq_dir = entry.path().join("cpufreq");
+        if !cpufreq_dir.exists() {
+            continue;
+        }
+
+        for file in ["scaling_cur_freq", "cpuinfo_cur_freq"] {
+            let path = cpufreq_dir.join(file);
+            if let Ok(raw) = std::fs::read_to_string(path)
+                && let Some(v) = parse_khz_to_mhz(raw.trim())
+            {
+                sum_mhz += v;
+                count += 1;
+                break;
+            }
+        }
+    }
+
+    if count > 0 {
+        Some(sum_mhz / count as f64)
+    } else {
+        None
+    }
+}
+
+fn proc_cpuinfo_freq_mhz() -> Option<f64> {
+    let raw = std::fs::read_to_string("/proc/cpuinfo").ok()?;
+    parse_cpuinfo_mhz(&raw)
+}
+
+fn is_cpu_dir_name(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix("cpu") else {
+        return false;
+    };
+    !rest.is_empty() && rest.chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn parse_khz_to_mhz(raw: &str) -> Option<f64> {
+    let khz: f64 = raw.parse().ok()?;
+    let mhz = khz / 1000.0;
+    if (100.0..=10_000.0).contains(&mhz) {
+        Some(mhz)
+    } else {
+        None
+    }
+}
+
+fn parse_cpuinfo_mhz(raw: &str) -> Option<f64> {
+    let mut sum = 0.0;
+    let mut count = 0_u64;
+
+    for line in raw.lines() {
+        let lower = line.to_ascii_lowercase();
+        if !lower.starts_with("cpu mhz") {
+            continue;
+        }
+
+        let Some((_, value_raw)) = line.split_once(':') else {
+            continue;
+        };
+        let Ok(v) = value_raw.trim().parse::<f64>() else {
+            continue;
+        };
+        if (100.0..=10_000.0).contains(&v) {
+            sum += v;
+            count += 1;
+        }
+    }
+
+    if count > 0 {
+        Some(sum / count as f64)
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn test_cpu_usage_clamp() {
         // cpu_usage returns a value from sysinfo which may be 0 on first call
@@ -102,5 +219,18 @@ mod tests {
         assert_eq!(usage, 100.0);
         let usage: f64 = (-5.0_f64).clamp(0.0, 100.0);
         assert_eq!(usage, 0.0);
+    }
+
+    #[test]
+    fn test_parse_khz_to_mhz() {
+        assert_eq!(parse_khz_to_mhz("3600000"), Some(3600.0));
+        assert_eq!(parse_khz_to_mhz("0"), None);
+    }
+
+    #[test]
+    fn test_parse_cpuinfo_mhz() {
+        let raw = "cpu MHz\t\t: 3592.889\nmodel name\t: test\ncpu MHz\t: 3500.000\n";
+        let avg = parse_cpuinfo_mhz(raw).unwrap();
+        assert!((avg - 3546.4445).abs() < 0.01);
     }
 }

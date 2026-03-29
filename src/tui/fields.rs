@@ -12,10 +12,18 @@ use crate::theme::model::{
 
 pub const SOURCE_OPTIONS: &[&str] = &[
     "cpu_temp",
+    "cpu_freq",
     "gpu_temp",
+    "gpu_freq",
+    "fan_speed",
+    "liquid_temp",
     "cpu_usage",
     "gpu_usage",
     "mem_usage",
+    "net_down",
+    "net_up",
+    "disk_read",
+    "disk_write",
 ];
 
 pub const TIME_FORMAT_OPTIONS: &[&str] = &["hh:mm:ss", "date", "weekday"];
@@ -288,10 +296,18 @@ pub fn apply_field(w: &mut Widget, field: &str, value: &str) -> Result<(), Strin
 pub fn source_to_str(src: &MetricSource) -> &'static str {
     match src {
         MetricSource::CpuTemp => "cpu_temp",
+        MetricSource::CpuFreq => "cpu_freq",
         MetricSource::GpuTemp => "gpu_temp",
+        MetricSource::GpuFreq => "gpu_freq",
+        MetricSource::FanSpeed => "fan_speed",
+        MetricSource::LiquidTemp => "liquid_temp",
         MetricSource::CpuUsage => "cpu_usage",
         MetricSource::GpuUsage => "gpu_usage",
         MetricSource::MemUsage => "mem_usage",
+        MetricSource::NetDown => "net_down",
+        MetricSource::NetUp => "net_up",
+        MetricSource::DiskRead => "disk_read",
+        MetricSource::DiskWrite => "disk_write",
     }
 }
 
@@ -299,12 +315,20 @@ pub fn source_to_str(src: &MetricSource) -> &'static str {
 pub fn parse_source(s: &str) -> Result<MetricSource, String> {
     match s.to_ascii_lowercase().as_str() {
         "cpu_temp" => Ok(MetricSource::CpuTemp),
+        "cpu_freq" => Ok(MetricSource::CpuFreq),
         "gpu_temp" => Ok(MetricSource::GpuTemp),
+        "gpu_freq" => Ok(MetricSource::GpuFreq),
+        "fan_speed" => Ok(MetricSource::FanSpeed),
+        "liquid_temp" => Ok(MetricSource::LiquidTemp),
         "cpu_usage" => Ok(MetricSource::CpuUsage),
         "gpu_usage" => Ok(MetricSource::GpuUsage),
         "mem_usage" => Ok(MetricSource::MemUsage),
+        "net_down" => Ok(MetricSource::NetDown),
+        "net_up" => Ok(MetricSource::NetUp),
+        "disk_read" => Ok(MetricSource::DiskRead),
+        "disk_write" => Ok(MetricSource::DiskWrite),
         other => Err(format!(
-            "unknown source '{}' — valid: cpu_temp, gpu_temp, cpu_usage, gpu_usage, mem_usage",
+            "unknown source '{}' — valid: cpu_temp, cpu_freq, gpu_temp, gpu_freq, fan_speed, liquid_temp, cpu_usage, gpu_usage, mem_usage, net_down, net_up, disk_read, disk_write",
             other
         )),
     }

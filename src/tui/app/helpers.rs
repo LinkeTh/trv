@@ -219,7 +219,12 @@ pub(super) fn build_explorer_theme() -> ExplorerTheme {
 pub(super) fn metric_value_to_spark_sample(key: &str, value: f64) -> f64 {
     match key {
         "cpu_usage" | "gpu_usage" | "mem_usage" => value.clamp(0.0, 100.0),
-        "cpu_temp" | "gpu_temp" => ((value / 120.0) * 100.0).clamp(0.0, 100.0),
+        "cpu_temp" | "gpu_temp" | "liquid_temp" => ((value / 120.0) * 100.0).clamp(0.0, 100.0),
+        "cpu_freq" | "gpu_freq" => ((value / 3000.0) * 100.0).clamp(0.0, 100.0),
+        "fan_speed" => ((value / 4000.0) * 100.0).clamp(0.0, 100.0),
+        "net_down" | "net_up" | "disk_read" | "disk_write" => {
+            ((value / 100.0) * 100.0).clamp(0.0, 100.0)
+        }
         _ => value.clamp(0.0, 100.0),
     }
 }

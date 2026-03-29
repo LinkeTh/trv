@@ -38,12 +38,20 @@ pub const COLOR_PALETTE: &[&str] = &[
 pub const LOG_VISIBLE_ROWS: usize = 5;
 const LOG_HISTORY_CAPACITY: usize = 512;
 const METRIC_HISTORY_CAPACITY: usize = 64;
-const METRIC_KEYS: [&str; 5] = [
+const METRIC_KEYS: [&str; 13] = [
     "cpu_temp",
+    "cpu_freq",
     "cpu_usage",
     "mem_usage",
     "gpu_temp",
     "gpu_usage",
+    "gpu_freq",
+    "fan_speed",
+    "liquid_temp",
+    "net_down",
+    "net_up",
+    "disk_read",
+    "disk_write",
 ];
 
 const ROTATION_CODES: [crate::protocol::cmd::OrientationCode; 4] = [

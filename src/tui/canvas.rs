@@ -315,10 +315,18 @@ fn normalize_single_line(s: &str) -> String {
 fn metric_source_key(source: &MetricSource) -> &'static str {
     match source {
         MetricSource::CpuTemp => "cpu_temp",
+        MetricSource::CpuFreq => "cpu_freq",
         MetricSource::GpuTemp => "gpu_temp",
+        MetricSource::GpuFreq => "gpu_freq",
+        MetricSource::FanSpeed => "fan_speed",
+        MetricSource::LiquidTemp => "liquid_temp",
         MetricSource::CpuUsage => "cpu_usage",
         MetricSource::GpuUsage => "gpu_usage",
         MetricSource::MemUsage => "mem_usage",
+        MetricSource::NetDown => "net_down",
+        MetricSource::NetUp => "net_up",
+        MetricSource::DiskRead => "disk_read",
+        MetricSource::DiskWrite => "disk_write",
     }
 }
 

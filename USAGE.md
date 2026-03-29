@@ -196,7 +196,15 @@ Kind-specific fields:
 
 **Metric:**  `source`, `unit`, `label`, `show_label`
 
-Valid `source` values: `cpu_temp`, `gpu_temp`, `cpu_usage`, `gpu_usage`, `mem_usage`
+Valid `source` values:
+`cpu_temp`, `cpu_freq`, `gpu_temp`, `gpu_freq`, `fan_speed`, `liquid_temp`,
+`cpu_usage`, `gpu_usage`, `mem_usage`, `net_down`, `net_up`, `disk_read`, `disk_write`
+
+Metric notes:
+- `cpu_freq` / `gpu_freq` are reported in MHz.
+- `net_down` / `net_up` are aggregated across all interfaces and reported in KB/s.
+- `disk_read` / `disk_write` are aggregated across all disks and reported in KB/s.
+- `fan_speed` and `liquid_temp` depend on hwmon sensor availability and labels.
 
 Valid `font` selector values:
 `default`, `msyh`, `arial`, `impact`, `calibri`, `georgia`, `ni7seg`,

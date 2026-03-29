@@ -41,6 +41,17 @@ fn metric_detail_falls_back_to_raw_key() {
 }
 
 #[test]
+fn metric_detail_for_new_source_key() {
+    let w = widget(WidgetKind::Metric {
+        source: MetricSource::NetDown,
+        unit: "MB/s".into(),
+        label: String::new(),
+        show_label: false,
+    });
+    assert_eq!(widget_detail_label(&w), "net_down");
+}
+
+#[test]
 fn image_detail_uses_basename() {
     let w = widget(WidgetKind::Image {
         path: "/tmp/trv/assets/logo.png".into(),

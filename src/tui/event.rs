@@ -123,10 +123,18 @@ pub fn spawn_event_threads() -> (Sender<Event>, Receiver<Event>, Arc<AtomicBool>
         // Collect all known metric sources once at startup.
         let all_sources: Vec<(String, MetricSource)> = [
             ("cpu_temp", MetricSource::CpuTemp),
+            ("cpu_freq", MetricSource::CpuFreq),
             ("cpu_usage", MetricSource::CpuUsage),
             ("mem_usage", MetricSource::MemUsage),
             ("gpu_temp", MetricSource::GpuTemp),
             ("gpu_usage", MetricSource::GpuUsage),
+            ("gpu_freq", MetricSource::GpuFreq),
+            ("fan_speed", MetricSource::FanSpeed),
+            ("liquid_temp", MetricSource::LiquidTemp),
+            ("net_down", MetricSource::NetDown),
+            ("net_up", MetricSource::NetUp),
+            ("disk_read", MetricSource::DiskRead),
+            ("disk_write", MetricSource::DiskWrite),
         ]
         .iter()
         .map(|(k, v)| (k.to_string(), v.clone()))
@@ -141,8 +149,14 @@ pub fn spawn_event_threads() -> (Sender<Event>, Receiver<Event>, Arc<AtomicBool>
                 .map(|(k, v)| {
                     let s = match k.as_str() {
                         "cpu_temp" => format!("{:.1}°C", *v),
+                        "liquid_temp" => format!("{:.1}°C", *v),
                         "gpu_temp" => format!("{:.0}°C", *v),
                         "cpu_usage" | "gpu_usage" | "mem_usage" => format!("{:.1}%", *v),
+                        "cpu_freq" | "gpu_freq" => format!("{:.0} MHz", *v),
+                        "fan_speed" => format!("{:.0} RPM", *v),
+                        "net_down" | "net_up" | "disk_read" | "disk_write" => {
+                            format!("{:.1} KB/s", *v)
+                        }
                         _ => format!("{:.1}", *v),
                     };
                     (k.clone(), s)

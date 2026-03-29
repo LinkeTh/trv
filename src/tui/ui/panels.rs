@@ -209,7 +209,7 @@ pub(super) fn draw_metric_preview_panel(f: &mut Frame, app: &App, area: Rect) {
 
         let cols = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([Constraint::Length(14), Constraint::Min(0)])
+            .constraints([Constraint::Length(16), Constraint::Min(0)])
             .split(*row_area);
 
         let (value, value_style) = if let Some(value) = app.metrics.values.get(*key) {

@@ -96,17 +96,33 @@ fn update_metrics_collects_sparkline_history() {
 
     let mut samples = HashMap::new();
     samples.insert("cpu_temp".to_string(), 60.0);
+    samples.insert("cpu_freq".to_string(), 4200.0);
     samples.insert("cpu_usage".to_string(), 25.0);
     samples.insert("mem_usage".to_string(), 33.0);
     samples.insert("gpu_temp".to_string(), 48.0);
     samples.insert("gpu_usage".to_string(), 40.0);
+    samples.insert("gpu_freq".to_string(), 1800.0);
+    samples.insert("fan_speed".to_string(), 1400.0);
+    samples.insert("liquid_temp".to_string(), 33.5);
+    samples.insert("net_down".to_string(), 12.0);
+    samples.insert("net_up".to_string(), 5.5);
+    samples.insert("disk_read".to_string(), 44.0);
+    samples.insert("disk_write".to_string(), 22.0);
 
     let mut values = HashMap::new();
     values.insert("cpu_temp".to_string(), "60.0°C".to_string());
+    values.insert("cpu_freq".to_string(), "4200 MHz".to_string());
     values.insert("cpu_usage".to_string(), "25.0%".to_string());
     values.insert("mem_usage".to_string(), "33.0%".to_string());
     values.insert("gpu_temp".to_string(), "48°C".to_string());
     values.insert("gpu_usage".to_string(), "40.0%".to_string());
+    values.insert("gpu_freq".to_string(), "1800 MHz".to_string());
+    values.insert("fan_speed".to_string(), "1400 RPM".to_string());
+    values.insert("liquid_temp".to_string(), "33.5°C".to_string());
+    values.insert("net_down".to_string(), "12.0 KB/s".to_string());
+    values.insert("net_up".to_string(), "5.5 KB/s".to_string());
+    values.insert("disk_read".to_string(), "44.0 KB/s".to_string());
+    values.insert("disk_write".to_string(), "22.0 KB/s".to_string());
 
     app.update_metrics(MetricsSnapshot { values, samples });
 
@@ -115,4 +131,10 @@ fn update_metrics_collects_sparkline_history() {
         .get("cpu_usage")
         .expect("cpu_usage history present");
     assert_eq!(cpu_usage_hist.back().copied(), Some(25));
+
+    let net_down_hist = app
+        .metric_history
+        .get("net_down")
+        .expect("net_down history present");
+    assert_eq!(net_down_hist.back().copied(), Some(12));
 }

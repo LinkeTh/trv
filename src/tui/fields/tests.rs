@@ -88,6 +88,30 @@ fn apply_source() {
 }
 
 #[test]
+fn parse_all_metric_sources() {
+    let cases = [
+        ("cpu_temp", MetricSource::CpuTemp),
+        ("cpu_freq", MetricSource::CpuFreq),
+        ("gpu_temp", MetricSource::GpuTemp),
+        ("gpu_freq", MetricSource::GpuFreq),
+        ("fan_speed", MetricSource::FanSpeed),
+        ("liquid_temp", MetricSource::LiquidTemp),
+        ("cpu_usage", MetricSource::CpuUsage),
+        ("gpu_usage", MetricSource::GpuUsage),
+        ("mem_usage", MetricSource::MemUsage),
+        ("net_down", MetricSource::NetDown),
+        ("net_up", MetricSource::NetUp),
+        ("disk_read", MetricSource::DiskRead),
+        ("disk_write", MetricSource::DiskWrite),
+    ];
+
+    for (raw, expected) in cases {
+        assert_eq!(parse_source(raw).unwrap(), expected);
+        assert_eq!(source_to_str(&expected), raw);
+    }
+}
+
+#[test]
 fn widget_fields_count() {
     let w = metric_widget();
     let fields = widget_fields(&w);
