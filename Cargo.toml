@@ -57,6 +57,9 @@ anyhow = "1"
 # Hex encoding/decoding
 hex = "0.4"
 
+# Date/time
+chrono = "0.4"
+
 [dev-dependencies]
 
 [profile.release]

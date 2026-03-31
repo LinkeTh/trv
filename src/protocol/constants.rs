@@ -10,6 +10,8 @@ pub const CMD_METRIC_UPDATE: u8 = 0x15;
 pub const CMD_SLEEP_WAKE: u8 = 0x24;
 /// CMD 0x38 — screen orientation (cmd38).
 pub const CMD_ORIENTATION: u8 = 0x38;
+/// CMD 0x36 — set device system clock (cmd36).
+pub const CMD_TIME_SYNC: u8 = 0x36;
 /// CMD 0x3A — custom theme widget push (cmd3A).
 pub const CMD_CUSTOM_THEME: u8 = 0x3A;
 

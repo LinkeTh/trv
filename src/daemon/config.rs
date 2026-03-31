@@ -31,6 +31,9 @@ pub struct DaemonConfig {
     /// If true, send cmd24 wake-on before setup sequence.
     pub send_wake: bool,
 
+    /// If true, send cmd36 time-sync at startup to set the device clock.
+    pub sync_time: bool,
+
     /// Receive timeout per frame in milliseconds.
     pub recv_timeout_ms: u64,
 
@@ -61,6 +64,7 @@ impl Default for DaemonConfig {
             temp_offset_c: 0.0,
             adb_forward: false,
             send_wake: false,
+            sync_time: true,
             recv_timeout_ms: 1000,
             max_retries: 0,
         }

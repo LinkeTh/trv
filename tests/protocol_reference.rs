@@ -1,7 +1,7 @@
 /// M1 integration tests — byte-for-byte comparison against protocol
 /// reference vectors captured during development.
 use trv::protocol::{
-    cmd::{Cmd15Field, ShowId, build_cmd15_frame},
+    cmd::{Cmd15Field, ShowId, build_cmd15_frame, build_cmd36_frame},
     frame::build_frame_default,
 };
 use trv::theme::hex::{WidgetHexParams, build_widget_hex};
@@ -102,6 +102,39 @@ fn test_frame_builder_single_metric() {
         frame,
         expected,
         "single-metric frame mismatch.\n  got:      {}\n  expected: {}",
+        hex::encode_upper(&frame),
+        hex::encode_upper(&expected),
+    );
+}
+
+// ─── cmd 0x36 — time sync ────────────────────────────────────────────────────
+
+/// Reference vector for cmd36 with a known timestamp.
+///
+/// Payload is the ASCII bytes of "20250331100000" (14 bytes) + 2 zero-padding bytes.
+/// Frame: AAF5 + 0012 (len=18=SN+CMD+16) + 00 (SN) + 36 (CMD) + payload + 00 (tail)
+#[test]
+fn test_cmd36_time_sync_frame_matches_reference() {
+    let frame = build_cmd36_frame("20250331100000").expect("build_cmd36_frame");
+
+    // Build expected frame manually:
+    //   AAF5                          magic
+    //   0012                          length = 1(SN) + 1(CMD) + 16(payload) = 18 = 0x12
+    //   00                            SN
+    //   36                            CMD
+    //   3230323530333331313030303030  ASCII bytes of "20250331100000"
+    //   0000                          2-byte padding
+    //   00                            tail
+    let expected = from_hex("AAF5001200363230323530333331313030303030000000");
+
+    // Sanity-check expected length: 2 + 2 + 1 + 1 + 16 + 1 = 23 bytes
+    assert_eq!(expected.len(), 23, "reference vector must be 23 bytes");
+    assert_eq!(frame.len(), 23, "built frame must be 23 bytes");
+
+    assert_eq!(
+        frame,
+        expected,
+        "cmd36 frame mismatch.\n  got:      {}\n  expected: {}",
         hex::encode_upper(&frame),
         hex::encode_upper(&expected),
     );

@@ -4,10 +4,12 @@
 ///   1. Load theme from TOML
 ///   2. (optional) ADB forward
 ///   3. (optional) Send cmd24 wake-on
-///   4. (optional) Push widget image/video files via ADB
-///   5. Send cmd3A split frames (one widget per frame, 50 ms apart)
-///   6. Prime CPU usage baseline (sysinfo needs two samples for a delta)
-///   7. Loop: collect metrics → build cmd15 payload → send frame → sleep
+///   4. (optional) Send cmd36 time-sync to set device clock to local time
+///   5. (optional) Push widget image/video files via ADB
+///   6. Send cmd3A split frames (one widget per frame, 50 ms apart)
+///   7. Determine metric sources from theme
+///   8. Prime CPU usage baseline (sysinfo needs two samples for a delta)
+///   9. Loop: collect metrics → build cmd15 payload → send frame → sleep
 use std::{collections::HashSet, path::Path, time::Duration};
 
 use anyhow::{Context, Result};
@@ -16,7 +18,9 @@ use tracing::{debug, error, info, warn};
 use crate::{
     device::{adb, connection},
     metrics::collector::MetricCollector,
-    protocol::cmd::{Cmd15Field, PowerState, ShowId, build_cmd15_frame, build_cmd24_frame},
+    protocol::cmd::{
+        Cmd15Field, PowerState, ShowId, build_cmd15_frame, build_cmd24_frame, build_cmd36_frame,
+    },
     theme::{
         hex::split_cmd3a_frames,
         model::{Theme, WidgetKind, image_remote_name, theme_metric_sources},
@@ -69,14 +73,36 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
         }
     }
 
-    // ── 4. Push theme assets (image/video widgets) ─────────────────────────
+    // ── 4. Time sync (cmd36) ─────────────────────────────────────────────
+    if cfg.sync_time {
+        let now = chrono::Local::now().format("%Y%m%d%H%M%S").to_string();
+        let frame =
+            build_cmd36_frame(&now).map_err(|e| anyhow::anyhow!("build cmd36 frame: {}", e))?;
+        if cfg.dry_run {
+            info!(
+                "dry-run cmd36 time-sync frame={}",
+                hex::encode_upper(&frame)
+            );
+        } else {
+            match connection::send_frame(&cfg.host, cfg.port, &frame, cfg.recv_timeout_ms).await {
+                Ok(reply) => info!(
+                    "cmd36 time-sync reply={} (local={})",
+                    hex::encode_upper(&reply),
+                    now
+                ),
+                Err(e) => warn!("cmd36 time-sync error: {e} — continuing"),
+            }
+        }
+    }
+
+    // ── 5. Push theme assets (image/video widgets) ─────────────────────────
     {
         let dry_run = cfg.dry_run;
         let theme_ref = &theme;
         tokio::task::block_in_place(|| push_theme_assets(theme_ref, dry_run, None));
     }
 
-    // ── 5. Send cmd3A split frames ─────────────────────────────────────────
+    // ── 6. Send cmd3A split frames ─────────────────────────────────────────
     let split_frames = build_theme_frames(&theme)?;
     info!(
         "sending {} cmd3A widget frame(s) to {}:{}",
@@ -107,7 +133,7 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
         info!("cmd3A theme frames sent OK");
     }
 
-    // ── 6. Determine metric sources from theme ─────────────────────────────
+    // ── 7. Determine metric sources from theme ─────────────────────────────
     let sources = theme_metric_sources(&theme);
     if sources.is_empty() {
         warn!("theme has no metric widgets — no cmd15 updates will be sent");
@@ -121,13 +147,13 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
             .collect::<Vec<_>>()
     );
 
-    // ── 7. Prime CPU baseline ──────────────────────────────────────────────
+    // ── 8. Prime CPU baseline ──────────────────────────────────────────────
     let mut collector = MetricCollector::new(cfg.temp_offset_c);
     collector.prime();
     // Give sysinfo time to accumulate a CPU usage delta
     tokio::time::sleep(Duration::from_millis(500)).await;
 
-    // ── 8. Metrics loop ────────────────────────────────────────────────────
+    // ── 9. Metrics loop ────────────────────────────────────────────────────
     let interval = Duration::from_secs_f64(cfg.interval_s.max(0.1));
     let mut sent: u32 = 0;
     let mut consecutive_errors: u32 = 0;

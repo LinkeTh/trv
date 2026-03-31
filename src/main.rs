@@ -69,6 +69,10 @@ enum Commands {
         #[arg(long)]
         wake: bool,
 
+        /// Skip sending cmd36 time-sync at startup
+        #[arg(long)]
+        no_time_sync: bool,
+
         /// Receive timeout per frame in milliseconds
         #[arg(long, default_value_t = 1000)]
         recv_timeout_ms: u64,
@@ -144,6 +148,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             temp_offset,
             adb_forward,
             wake,
+            no_time_sync,
             recv_timeout_ms,
             max_retries,
         } => {
@@ -176,6 +181,7 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
                 temp_offset_c: temp_offset,
                 adb_forward,
                 send_wake: wake,
+                sync_time: !no_time_sync,
                 recv_timeout_ms,
                 max_retries,
             };

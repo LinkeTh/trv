@@ -5,8 +5,8 @@
 use std::fmt;
 
 use crate::protocol::constants::{
-    CMD_CUSTOM_THEME, CMD_METRIC_UPDATE, CMD_ORIENTATION, CMD_SLEEP_WAKE, WIDGET_BYTES_LEN,
-    encode_show_value, show_offsets,
+    CMD_CUSTOM_THEME, CMD_METRIC_UPDATE, CMD_ORIENTATION, CMD_SLEEP_WAKE, CMD_TIME_SYNC,
+    WIDGET_BYTES_LEN, encode_show_value, show_offsets,
 };
 use crate::protocol::frame::build_frame_default;
 use crate::protocol::widget::WidgetPayloadRaw;
@@ -238,6 +238,39 @@ pub fn build_cmd38_frame(code: OrientationCode) -> Result<Vec<u8>, String> {
     build_frame_default(CMD_ORIENTATION, &payload)
 }
 
+/// CMD 0x36 — set device system clock.
+///
+/// Accepts a 14-char date string `"YYYYMMDDHHmmss"` representing the desired
+/// display time.  The device firmware interprets this in Asia/Shanghai (UTC+8),
+/// so we send the user's **local time** directly — the +8 h offset cancels out
+/// during display.
+///
+/// Payload layout (16 bytes):
+///   \[date string as ASCII bytes: 14\] + \[0x00, 0x00: 2-byte padding\]
+///
+/// The firmware converts the raw payload to a hex string, trims 5 trailing
+/// chars (4 from padding + 1 from the frame tail byte that leaks into
+/// `content.element`), then hex-decodes back to ASCII to recover the original
+/// 14-char date string.
+pub fn build_cmd36_payload(local_time_str: &str) -> Result<Vec<u8>, String> {
+    if local_time_str.len() != 14 || !local_time_str.chars().all(|c| c.is_ascii_digit()) {
+        return Err(format!(
+            "cmd36 time must be exactly 14 ASCII digits (YYYYMMDDHHmmss), got: {:?}",
+            local_time_str
+        ));
+    }
+    let mut payload = Vec::with_capacity(16);
+    payload.extend_from_slice(local_time_str.as_bytes()); // 14 bytes
+    payload.extend_from_slice(&[0x00, 0x00]); // 2-byte padding
+    Ok(payload) // 16 bytes total
+}
+
+/// Build a complete cmd36 frame from a local-time date string.
+pub fn build_cmd36_frame(local_time_str: &str) -> Result<Vec<u8>, String> {
+    let payload = build_cmd36_payload(local_time_str)?;
+    build_frame_default(CMD_TIME_SYNC, &payload)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -362,5 +395,38 @@ mod tests {
         assert_eq!(payload[0], 0x01);
         assert_eq!(payload[1], 0x01);
         assert_eq!(payload[2], 0x02);
+    }
+
+    #[test]
+    fn test_build_cmd36_payload_format() {
+        let payload = build_cmd36_payload("20250331100000").unwrap();
+        assert_eq!(payload.len(), 16);
+        assert_eq!(&payload[..14], b"20250331100000");
+        assert_eq!(&payload[14..], &[0x00, 0x00]);
+    }
+
+    #[test]
+    fn test_build_cmd36_rejects_short() {
+        assert!(build_cmd36_payload("2025033110000").is_err()); // 13 chars
+    }
+
+    #[test]
+    fn test_build_cmd36_rejects_long() {
+        assert!(build_cmd36_payload("202503311000000").is_err()); // 15 chars
+    }
+
+    #[test]
+    fn test_build_cmd36_rejects_non_digit() {
+        assert!(build_cmd36_payload("2025033110000a").is_err());
+    }
+
+    #[test]
+    fn test_build_cmd36_frame_structure() {
+        let frame = build_cmd36_frame("20250331100000").unwrap();
+        // AAF5 + len(0012=18=1+1+16) + SN(00) + CMD(36) + 16 payload bytes + tail(00)
+        assert_eq!(frame.len(), 2 + 2 + 1 + 1 + 16 + 1); // 23 bytes
+        let hex = hex::encode_upper(&frame);
+        assert!(hex.starts_with("AAF500120036"), "prefix: {}", hex);
+        assert!(hex.ends_with("00"), "tail: {}", hex);
     }
 }
