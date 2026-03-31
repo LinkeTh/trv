@@ -315,7 +315,7 @@ fn is_safe_adb_arg(arg: &str) -> bool {
 mod tests {
     use std::time::Duration;
 
-    use super::{is_safe_adb_arg, parse_utc_offset_hhmm, parse_wm_size_output, AdbError};
+    use super::{AdbError, is_safe_adb_arg, parse_utc_offset_hhmm, parse_wm_size_output};
 
     #[test]
     fn adb_arg_rejects_empty_and_flag_like_values() {

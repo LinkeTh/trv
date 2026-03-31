@@ -392,6 +392,12 @@ async fn send_metrics_frame(
         return Err(anyhow::anyhow!("no metric values available"));
     }
 
+    debug!(
+        "cmd15 collected {} metric(s): {:?}",
+        readings.len(),
+        readings
+    );
+
     let mut fields: Vec<Cmd15Field> = Vec::with_capacity(readings.len());
     for (show_id, value) in &readings {
         fields.push(Cmd15Field {

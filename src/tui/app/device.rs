@@ -81,9 +81,7 @@ impl App {
                             "1",
                         ) {
                             Ok(()) => Ok("auto-rotation enabled".to_string()),
-                            Err(e) => {
-                                Err(format!("failed to enable auto-rotation via adb: {}", e))
-                            }
+                            Err(e) => Err(format!("failed to enable auto-rotation via adb: {}", e)),
                         }
                     }
                 }

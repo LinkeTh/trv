@@ -5,6 +5,7 @@
 ///   - Fall back to /sys/class/drm/card*/device/hwmon/hwmon*/temp*_input (temp)
 ///   - Fall back to /sys/class/drm/card*/device/gpu_busy_percent (usage, AMD)
 ///   - Fall back to /sys/class/drm/card*/device/pp_dpm_sclk (freq, AMD)
+///   - Fall back to /sys/class/drm/card*/gt_cur_freq_mhz (freq, Intel)
 use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
@@ -74,7 +75,7 @@ pub fn gpu_usage() -> Option<f64> {
 /// Read GPU graphics clock frequency in MHz.
 ///
 /// Tries nvidia-smi first; falls back to AMD sysfs `pp_dpm_sclk` active
-/// state parsing.
+/// state parsing, then Intel sysfs `gt_cur_freq_mhz`.
 pub fn gpu_freq() -> Option<f64> {
     if let Some(v) = nvidia_smi_query("clocks.current.graphics")
         && (50.0..=5000.0).contains(&v)
@@ -82,7 +83,11 @@ pub fn gpu_freq() -> Option<f64> {
         return Some(v);
     }
 
-    amd_gpu_freq()
+    if let Some(v) = amd_gpu_freq() {
+        return Some(v);
+    }
+
+    intel_gpu_freq()
 }
 
 /// AMD GPU utilization fallback via sysfs `gpu_busy_percent`.
@@ -130,6 +135,29 @@ fn amd_gpu_freq() -> Option<f64> {
     None
 }
 
+/// Intel integrated GPU frequency fallback via sysfs `gt_cur_freq_mhz`.
+///
+/// Reads `/sys/class/drm/card*/gt_cur_freq_mhz` and returns the first
+/// plausible value found (50–5000 MHz). Returns `None` if no file exists
+/// or no valid value can be read.
+fn intel_gpu_freq() -> Option<f64> {
+    let drm_base = std::path::Path::new("/sys/class/drm");
+    if !drm_base.exists() {
+        return None;
+    }
+    let entries = std::fs::read_dir(drm_base).ok()?;
+    for entry in entries.flatten() {
+        let freq_path = entry.path().join("gt_cur_freq_mhz");
+        if let Ok(txt) = std::fs::read_to_string(&freq_path)
+            && let Ok(v) = txt.trim().parse::<f64>()
+            && (50.0..=5000.0).contains(&v)
+        {
+            return Some(v);
+        }
+    }
+    None
+}
+
 /// Query GPU temperature, usage, and frequency in one nvidia-smi invocation.
 ///
 /// Returns a `GpuReadings` struct with whichever fields could be read.
@@ -150,7 +178,7 @@ pub fn gpu_query_all() -> GpuReadings {
             return GpuReadings {
                 temp: sysfs_gpu_temp(),
                 usage: amd_gpu_usage(),
-                freq: amd_gpu_freq(),
+                freq: amd_gpu_freq().or_else(intel_gpu_freq),
             };
         }
     };

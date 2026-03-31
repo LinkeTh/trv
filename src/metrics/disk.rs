@@ -18,7 +18,10 @@ pub fn disk_read_kb_per_s(disks: &Disks, elapsed: Duration) -> Option<f64> {
         .map(|disk| disk.usage().read_bytes)
         .fold(0_u64, |acc, v| acc.saturating_add(v));
 
-    Some((bytes as f64 / BYTES_PER_KILOBYTE) / seconds)
+    let kb = (bytes as f64 / BYTES_PER_KILOBYTE) / seconds;
+    // Clamp small positive rates to 1 KB/s so the device shows activity
+    // instead of rounding to 0.
+    Some(if kb > 0.0 && kb < 1.0 { 1.0 } else { kb })
 }
 
 /// Aggregate disk write throughput across all disks in KB/s.
@@ -34,7 +37,8 @@ pub fn disk_write_kb_per_s(disks: &Disks, elapsed: Duration) -> Option<f64> {
         .map(|disk| disk.usage().written_bytes)
         .fold(0_u64, |acc, v| acc.saturating_add(v));
 
-    Some((bytes as f64 / BYTES_PER_KILOBYTE) / seconds)
+    let kb = (bytes as f64 / BYTES_PER_KILOBYTE) / seconds;
+    Some(if kb > 0.0 && kb < 1.0 { 1.0 } else { kb })
 }
 
 #[cfg(test)]

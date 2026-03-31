@@ -113,7 +113,7 @@ fn sysinfo_cpu_freq(system: &System) -> Option<f64> {
 
     let total: u64 = cpus.iter().map(|cpu| cpu.frequency()).sum();
     let avg = total as f64 / cpus.len() as f64;
-    if avg > 1.0 { Some(avg) } else { None }
+    if avg > 0.0 { Some(avg) } else { None }
 }
 
 fn sysfs_cpu_freq_mhz() -> Option<f64> {

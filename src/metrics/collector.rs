@@ -19,6 +19,7 @@ use std::hash::Hash;
 use std::time::Instant;
 
 use sysinfo::{Components, DiskRefreshKind, Disks, Networks, System};
+use tracing::debug;
 
 use crate::theme::model::MetricSource;
 
@@ -68,15 +69,16 @@ impl MetricCollector {
 
     /// Collect all metrics for the given `(show_id, MetricSource)` pairs.
     ///
-    /// Returns a map of `show_id → value` for every source that could be read.
-    /// Missing values are silently omitted (caller decides how to handle gaps).
+    /// Returns a map of `show_id → value` for every requested source.
+    /// Sources that fail to read are inserted as `0.0` (with a debug log)
+    /// so that the device always receives a value for each metric widget.
     ///
     /// When any two or more GPU metrics are requested, a single batched
     /// nvidia-smi call (`gpu_query_all`) is used to avoid spawning multiple
     /// processes per collection cycle.
     pub fn collect<K>(&mut self, sources: &[(K, MetricSource)]) -> HashMap<K, f64>
     where
-        K: Clone + Eq + Hash,
+        K: Clone + Eq + Hash + std::fmt::Debug,
     {
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(self.last_collect_at);
@@ -154,8 +156,17 @@ impl MetricCollector {
                 MetricSource::DiskWrite => disk::disk_write_kb_per_s(&self.disks, elapsed),
             };
 
-            if let Some(v) = value {
-                map.insert(show_id.clone(), v);
+            match value {
+                Some(v) => {
+                    map.insert(show_id.clone(), v);
+                }
+                None => {
+                    debug!(
+                        "metric {:?} ({:?}) returned None, sending 0.0",
+                        show_id, source
+                    );
+                    map.insert(show_id.clone(), 0.0);
+                }
             }
         }
 
