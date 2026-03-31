@@ -238,12 +238,15 @@ pub fn build_cmd38_frame(code: OrientationCode) -> Result<Vec<u8>, String> {
     build_frame_default(CMD_ORIENTATION, &payload)
 }
 
-/// CMD 0x36 — set device system clock.
+/// CMD 0x36 legacy payload — 14-digit date string.
 ///
-/// Accepts a 14-char date string `"YYYYMMDDHHmmss"` representing the desired
-/// display time.  The device firmware interprets this in Asia/Shanghai (UTC+8),
-/// so we send the user's **local time** directly — the +8 h offset cancels out
-/// during display.
+/// Accepts a 14-char date string `"YYYYMMDDHHmmss"` and appends two NUL bytes.
+/// This matches the original app behavior on firmware paths that call
+/// `Utils.setDeviceTimeStr(...)`.
+///
+/// On some firmware variants cmd36 does **not** use that branch and instead
+/// routes through `Utils.setDeviceTime(long)`. For those variants, prefer
+/// [`build_cmd36_payload_inverse_long`].
 ///
 /// Payload layout (16 bytes):
 ///   \[date string as ASCII bytes: 14\] + \[0x00, 0x00: 2-byte padding\]
@@ -268,6 +271,51 @@ pub fn build_cmd36_payload(local_time_str: &str) -> Result<Vec<u8>, String> {
 /// Build a complete cmd36 frame from a local-time date string.
 pub fn build_cmd36_frame(local_time_str: &str) -> Result<Vec<u8>, String> {
     let payload = build_cmd36_payload(local_time_str)?;
+    build_frame_default(CMD_TIME_SYNC, &payload)
+}
+
+/// Build cmd36 payload that decodes through firmware `TextUtil.stringToLong`
+/// into a target decimal value and then routes to `Utils.setDeviceTime(long)`.
+///
+/// This is the reliable path on firmware variants where cmd36 does not hit the
+/// 14-char `setDeviceTimeStr` branch.
+///
+/// Payload layout is variable-length ASCII-hex bytes plus trailing `0x00 0x00`.
+/// The trailing zeros are required to match firmware trimming behavior before
+/// `stringToLong` conversion.
+pub fn build_cmd36_payload_inverse_long(target_decimal: u64) -> Result<Vec<u8>, String> {
+    let mut hx = format!("{:X}", target_decimal);
+    if hx.len() % 2 != 0 {
+        hx.insert(0, '0');
+    }
+
+    // Mirror TextUtil.reverseShex: swap byte-pairs from ends towards center.
+    let mut chars: Vec<char> = hx.chars().collect();
+    let length = chars.len();
+    let times = length / 2;
+    let mut i = 0usize;
+    while i < times {
+        let j = i + 1;
+        let k = (length - i) - 2;
+        let l = (length - i) - 1;
+        let c1 = chars[i];
+        let c2 = chars[j];
+        chars[i] = chars[k];
+        chars[j] = chars[l];
+        chars[k] = c1;
+        chars[l] = c2;
+        i += 2;
+    }
+
+    let core_hex: String = chars.into_iter().collect();
+    let payload_hex = format!("{}0000", core_hex);
+    hex::decode(&payload_hex)
+        .map_err(|e| format!("failed to decode inverse-long cmd36 payload: {e}"))
+}
+
+/// Build a complete cmd36 frame using the inverse-long payload strategy.
+pub fn build_cmd36_frame_inverse_long(target_decimal: u64) -> Result<Vec<u8>, String> {
+    let payload = build_cmd36_payload_inverse_long(target_decimal)?;
     build_frame_default(CMD_TIME_SYNC, &payload)
 }
 
