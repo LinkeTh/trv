@@ -261,7 +261,7 @@ impl TimeFormat {
 }
 
 /// Metric data sources.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum MetricSource {
     CpuTemp,
@@ -453,7 +453,7 @@ pub fn theme_metric_sources(theme: &Theme) -> Vec<(ShowId, MetricSource)> {
             if let WidgetKind::Metric { source, .. } = &w.kind {
                 let id = source.show_id();
                 if seen.insert(id) {
-                    Some((id, source.clone()))
+                    Some((id, *source))
                 } else {
                     None // duplicate show_id — skip
                 }

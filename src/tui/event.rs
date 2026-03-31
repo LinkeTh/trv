@@ -137,7 +137,7 @@ pub fn spawn_event_threads() -> (Sender<Event>, Receiver<Event>, Arc<AtomicBool>
             ("disk_write", MetricSource::DiskWrite),
         ]
         .iter()
-        .map(|(k, v)| (k.to_string(), v.clone()))
+        .map(|(k, v)| (k.to_string(), *v))
         .collect();
 
         while !quit_metrics.load(Ordering::Relaxed) {

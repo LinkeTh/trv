@@ -1,0 +1,18 @@
+[meta]
+name = "Diag GPU Freq"
+description = "Diagnostic preset: single gpu_freq metric"
+
+[[widget]]
+type = "metric"
+source = "gpu_freq"
+unit = "M"
+label = ""
+show_label = false
+x = 40
+y = 120
+width = 400
+height = 220
+text_size = 100
+color = "#B4BEFE"
+alpha = 1.0
+bold = true

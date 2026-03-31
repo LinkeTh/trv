@@ -1,0 +1,18 @@
+[meta]
+name = "Diag CPU Usage"
+description = "Diagnostic preset: single cpu_usage metric"
+
+[[widget]]
+type = "metric"
+source = "cpu_usage"
+unit = "%"
+label = ""
+show_label = false
+x = 40
+y = 120
+width = 400
+height = 220
+text_size = 100
+color = "#74C7EC"
+alpha = 1.0
+bold = true

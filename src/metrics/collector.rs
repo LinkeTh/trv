@@ -16,14 +16,26 @@
 /// ```
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use sysinfo::{Components, DiskRefreshKind, Disks, Networks, System};
-use tracing::debug;
+use tracing::{debug, info, warn};
 
 use crate::theme::model::MetricSource;
 
 use super::{cpu, disk, fan, gpu, memory, network};
+
+const LKG_TTL_DEFAULT: Duration = Duration::from_secs(6);
+const LKG_TTL_FREQ: Duration = Duration::from_secs(10);
+const FALLBACK_WARN_THROTTLE: Duration = Duration::from_secs(30);
+
+#[derive(Debug, Clone)]
+struct LastKnownGood {
+    value: f64,
+    seen_at: Instant,
+    fallback_warned_at: Option<Instant>,
+    was_fallback_last_cycle: bool,
+}
 
 /// Holds sysinfo state between collection cycles.
 pub struct MetricCollector {
@@ -33,6 +45,7 @@ pub struct MetricCollector {
     disks: Disks,
     temp_offset_c: f64,
     last_collect_at: Instant,
+    lkg: HashMap<MetricSource, LastKnownGood>,
 }
 
 impl MetricCollector {
@@ -56,6 +69,7 @@ impl MetricCollector {
             disks,
             temp_offset_c,
             last_collect_at: Instant::now(),
+            lkg: HashMap::new(),
         }
     }
 
@@ -156,21 +170,95 @@ impl MetricCollector {
                 MetricSource::DiskWrite => disk::disk_write_kb_per_s(&self.disks, elapsed),
             };
 
-            match value {
-                Some(v) => {
-                    map.insert(show_id.clone(), v);
-                }
-                None => {
-                    debug!(
-                        "metric {:?} ({:?}) returned None, sending 0.0",
-                        show_id, source
-                    );
-                    map.insert(show_id.clone(), 0.0);
-                }
-            }
+            let final_value = self.resolve_metric_value(*source, value, now);
+            map.insert(show_id.clone(), final_value);
         }
 
         map
+    }
+
+    fn resolve_metric_value(
+        &mut self,
+        source: MetricSource,
+        value: Option<f64>,
+        now: Instant,
+    ) -> f64 {
+        match value {
+            Some(v) => {
+                let entry = self.lkg.entry(source).or_insert(LastKnownGood {
+                    value: v,
+                    seen_at: now,
+                    fallback_warned_at: None,
+                    was_fallback_last_cycle: false,
+                });
+
+                entry.value = v;
+                entry.seen_at = now;
+                if entry.was_fallback_last_cycle {
+                    info!("metric {:?} recovered; live readings resumed", source);
+                }
+                entry.was_fallback_last_cycle = false;
+                entry.fallback_warned_at = None;
+                v
+            }
+            None => {
+                let ttl = metric_lkg_ttl(source);
+                if let Some(entry) = self.lkg.get_mut(&source) {
+                    let age = now.saturating_duration_since(entry.seen_at);
+                    if age <= ttl {
+                        maybe_warn_lkg_fallback(source, age, ttl, entry, now);
+                        entry.was_fallback_last_cycle = true;
+                        return entry.value;
+                    }
+
+                    if !entry.was_fallback_last_cycle || should_warn_fallback(entry, now) {
+                        warn!(
+                            "metric {:?} unavailable and cache expired (age {:?} > ttl {:?}); sending 0.0",
+                            source, age, ttl
+                        );
+                        entry.fallback_warned_at = Some(now);
+                    }
+                    entry.was_fallback_last_cycle = true;
+                    return 0.0;
+                }
+
+                debug!(
+                    "metric {:?} returned None with no cached value, sending 0.0",
+                    source
+                );
+                0.0
+            }
+        }
+    }
+}
+
+fn metric_lkg_ttl(source: MetricSource) -> Duration {
+    match source {
+        MetricSource::CpuFreq | MetricSource::GpuFreq => LKG_TTL_FREQ,
+        _ => LKG_TTL_DEFAULT,
+    }
+}
+
+fn should_warn_fallback(entry: &LastKnownGood, now: Instant) -> bool {
+    match entry.fallback_warned_at {
+        Some(last) => now.saturating_duration_since(last) >= FALLBACK_WARN_THROTTLE,
+        None => true,
+    }
+}
+
+fn maybe_warn_lkg_fallback(
+    source: MetricSource,
+    age: Duration,
+    ttl: Duration,
+    entry: &mut LastKnownGood,
+    now: Instant,
+) {
+    if !entry.was_fallback_last_cycle || should_warn_fallback(entry, now) {
+        warn!(
+            "metric {:?} unavailable; using cached value from {:?} ago (ttl {:?})",
+            source, age, ttl
+        );
+        entry.fallback_warned_at = Some(now);
     }
 }
 
@@ -209,5 +297,75 @@ mod tests {
         if let Some(&v) = readings.get("00") {
             assert!((5.0..=135.0).contains(&v), "cpu_temp {} out of range", v);
         }
+    }
+
+    #[test]
+    fn test_lkg_uses_cached_value_within_ttl() {
+        let mut collector = MetricCollector::new(0.0);
+        let now = Instant::now();
+        collector.lkg.insert(
+            MetricSource::GpuFreq,
+            LastKnownGood {
+                value: 2100.0,
+                seen_at: now,
+                fallback_warned_at: None,
+                was_fallback_last_cycle: false,
+            },
+        );
+
+        let got = collector.resolve_metric_value(
+            MetricSource::GpuFreq,
+            None,
+            now + Duration::from_secs(3),
+        );
+        assert_eq!(got, 2100.0);
+    }
+
+    #[test]
+    fn test_lkg_expires_to_zero() {
+        let mut collector = MetricCollector::new(0.0);
+        let now = Instant::now();
+        collector.lkg.insert(
+            MetricSource::CpuFreq,
+            LastKnownGood {
+                value: 4500.0,
+                seen_at: now,
+                fallback_warned_at: None,
+                was_fallback_last_cycle: false,
+            },
+        );
+
+        let got = collector.resolve_metric_value(
+            MetricSource::CpuFreq,
+            None,
+            now + Duration::from_secs(30),
+        );
+        assert_eq!(got, 0.0);
+    }
+
+    #[test]
+    fn test_lkg_recovery_clears_fallback_state() {
+        let mut collector = MetricCollector::new(0.0);
+        let now = Instant::now();
+        collector.lkg.insert(
+            MetricSource::CpuFreq,
+            LastKnownGood {
+                value: 3000.0,
+                seen_at: now,
+                fallback_warned_at: Some(now),
+                was_fallback_last_cycle: true,
+            },
+        );
+
+        let got = collector.resolve_metric_value(
+            MetricSource::CpuFreq,
+            Some(3200.0),
+            now + Duration::from_secs(1),
+        );
+        assert_eq!(got, 3200.0);
+
+        let entry = collector.lkg.get(&MetricSource::CpuFreq).unwrap();
+        assert!(!entry.was_fallback_last_cycle);
+        assert!(entry.fallback_warned_at.is_none());
     }
 }

@@ -1,0 +1,18 @@
+[meta]
+name = "Diag CPU Freq"
+description = "Diagnostic preset: single cpu_freq metric"
+
+[[widget]]
+type = "metric"
+source = "cpu_freq"
+unit = "M"
+label = ""
+show_label = false
+x = 40
+y = 120
+width = 400
+height = 220
+text_size = 100
+color = "#89B4FA"
+alpha = 1.0
+bold = true

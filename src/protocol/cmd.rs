@@ -348,6 +348,26 @@ mod tests {
     }
 
     #[test]
+    fn test_build_cmd15_freq_fields_placement() {
+        let vals = [
+            Cmd15Field {
+                show_id: ShowId::try_from("07").unwrap(),
+                value: 4500.0,
+            },
+            Cmd15Field {
+                show_id: ShowId::try_from("0F").unwrap(),
+                value: 2100.0,
+            },
+        ];
+        let p = build_cmd15_payload(&vals).unwrap();
+        assert_eq!(p.len(), 35);
+        // 4500 = 0x1194 -> LE [94, 11] at show 07 (hex offset 30..34 => byte 15..17).
+        assert_eq!(&p[15..17], &[0x94, 0x11]);
+        // 2100 = 0x0834 -> LE [34, 08] at show 0F (hex offset 66..70 => byte 33..35).
+        assert_eq!(&p[33..35], &[0x34, 0x08]);
+    }
+
+    #[test]
     fn test_cmd24_wake() {
         assert_eq!(build_cmd24_payload(PowerState::Wake), vec![0x01]);
         assert_eq!(build_cmd24_payload(PowerState::Sleep), vec![0x00]);

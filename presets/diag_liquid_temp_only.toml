@@ -1,0 +1,18 @@
+[meta]
+name = "Diag Liquid Temp"
+description = "Diagnostic preset: single liquid_temp metric"
+
+[[widget]]
+type = "metric"
+source = "liquid_temp"
+unit = "C"
+label = ""
+show_label = false
+x = 40
+y = 120
+width = 400
+height = 220
+text_size = 100
+color = "#89DCEB"
+alpha = 1.0
+bold = true

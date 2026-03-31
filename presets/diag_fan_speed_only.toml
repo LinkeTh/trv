@@ -1,0 +1,18 @@
+[meta]
+name = "Diag Fan Speed"
+description = "Diagnostic preset: single fan_speed metric"
+
+[[widget]]
+type = "metric"
+source = "fan_speed"
+unit = "RPM"
+label = ""
+show_label = false
+x = 40
+y = 120
+width = 400
+height = 220
+text_size = 92
+color = "#FAB387"
+alpha = 1.0
+bold = true
