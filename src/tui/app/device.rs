@@ -75,13 +75,16 @@ impl App {
                 RotationAction::EnableAuto => {
                     if !crate::device::adb::adb_available() {
                         Err("adb not found in PATH (required for auto-rotation)".into())
-                    } else if !crate::device::adb::adb_settings_put_system(
-                        "accelerometer_rotation",
-                        "1",
-                    ) {
-                        Err("failed to enable auto-rotation via adb".into())
                     } else {
-                        Ok("auto-rotation enabled".to_string())
+                        match crate::device::adb::adb_settings_put_system(
+                            "accelerometer_rotation",
+                            "1",
+                        ) {
+                            Ok(()) => Ok("auto-rotation enabled".to_string()),
+                            Err(e) => {
+                                Err(format!("failed to enable auto-rotation via adb: {}", e))
+                            }
+                        }
                     }
                 }
             };
@@ -138,7 +141,7 @@ impl App {
         let handle = std::thread::spawn(move || {
             crate::daemon::runner::push_theme_assets(&theme, false, Some(&cancel_worker));
 
-            if cancel_worker.load(Ordering::Relaxed) {
+            if cancel_worker.load(Ordering::Acquire) {
                 let _ = tx.send(Err("push cancelled".into()));
                 return;
             }
@@ -157,7 +160,7 @@ impl App {
 
             let result = rt.block_on(async move {
                 for (i, frame) in frames.iter().enumerate() {
-                    if cancel_worker.load(Ordering::Relaxed) {
+                    if cancel_worker.load(Ordering::Acquire) {
                         return Err("push cancelled".to_string());
                     }
 

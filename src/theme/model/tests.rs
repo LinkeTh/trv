@@ -2,19 +2,19 @@ use super::*;
 
 #[test]
 fn test_metric_source_show_ids() {
-    assert_eq!(MetricSource::CpuTemp.show_id(), "00");
-    assert_eq!(MetricSource::CpuFreq.show_id(), "07");
-    assert_eq!(MetricSource::CpuUsage.show_id(), "05");
-    assert_eq!(MetricSource::MemUsage.show_id(), "06");
-    assert_eq!(MetricSource::FanSpeed.show_id(), "09");
-    assert_eq!(MetricSource::GpuTemp.show_id(), "0D");
-    assert_eq!(MetricSource::GpuUsage.show_id(), "0E");
-    assert_eq!(MetricSource::GpuFreq.show_id(), "0F");
-    assert_eq!(MetricSource::LiquidTemp.show_id(), "10");
-    assert_eq!(MetricSource::DiskRead.show_id(), "1E");
-    assert_eq!(MetricSource::DiskWrite.show_id(), "1F");
-    assert_eq!(MetricSource::NetDown.show_id(), "23");
-    assert_eq!(MetricSource::NetUp.show_id(), "24");
+    assert_eq!(MetricSource::CpuTemp.show_id().as_hex(), "00");
+    assert_eq!(MetricSource::CpuFreq.show_id().as_hex(), "07");
+    assert_eq!(MetricSource::CpuUsage.show_id().as_hex(), "05");
+    assert_eq!(MetricSource::MemUsage.show_id().as_hex(), "06");
+    assert_eq!(MetricSource::FanSpeed.show_id().as_hex(), "09");
+    assert_eq!(MetricSource::GpuTemp.show_id().as_hex(), "0D");
+    assert_eq!(MetricSource::GpuUsage.show_id().as_hex(), "0E");
+    assert_eq!(MetricSource::GpuFreq.show_id().as_hex(), "0F");
+    assert_eq!(MetricSource::LiquidTemp.show_id().as_hex(), "10");
+    assert_eq!(MetricSource::DiskRead.show_id().as_hex(), "1E");
+    assert_eq!(MetricSource::DiskWrite.show_id().as_hex(), "1F");
+    assert_eq!(MetricSource::NetDown.show_id().as_hex(), "23");
+    assert_eq!(MetricSource::NetUp.show_id().as_hex(), "24");
 }
 
 #[test]
@@ -255,6 +255,7 @@ fn test_image_remote_name_edge_cases() {
     assert_eq!(image_remote_name("C:\\\\"), "");
     assert_eq!(image_remote_name("/tmp/trv/assets/"), "assets");
     assert_eq!(image_remote_name("C:/Users\\foo/bar.jpg"), "bar.jpg");
+    assert_eq!(image_remote_name("foo\0bar.jpg"), "");
 }
 
 #[test]

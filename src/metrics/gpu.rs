@@ -7,10 +7,14 @@
 ///   - Fall back to /sys/class/drm/card*/device/pp_dpm_sclk (freq, AMD)
 use std::process::Command;
 use std::sync::OnceLock;
+use std::time::Duration;
 
 /// Logs the first nvidia-smi query failure at `warn` level; subsequent
 /// failures are suppressed to avoid log spam on machines without NVIDIA GPUs.
 static NVIDIA_SMI_FAILURE_LOGGED: OnceLock<()> = OnceLock::new();
+
+/// Timeout for one `nvidia-smi` subprocess invocation.
+const NVIDIA_SMI_TIMEOUT: Duration = Duration::from_secs(2);
 
 /// Combined GPU readings from a single batched nvidia-smi invocation.
 #[derive(Debug, Default, Clone)]
@@ -132,16 +136,12 @@ fn amd_gpu_freq() -> Option<f64> {
 /// Avoids spawning multiple nvidia-smi processes when several GPU metrics are
 /// needed. Falls back to sysfs if nvidia-smi is unavailable.
 pub fn gpu_query_all() -> GpuReadings {
-    let output = Command::new("nvidia-smi")
-        .args([
-            "--query-gpu=temperature.gpu,utilization.gpu,clocks.current.graphics",
-            "--format=csv,noheader,nounits",
-        ])
-        .output();
-
-    let output = match output {
-        Ok(o) if o.status.success() => o,
-        Ok(_) | Err(_) => {
+    let output = match run_nvidia_smi_with_timeout(&[
+        "--query-gpu=temperature.gpu,utilization.gpu,clocks.current.graphics",
+        "--format=csv,noheader,nounits",
+    ]) {
+        Some(o) => o,
+        None => {
             // nvidia-smi not available or failed — log once, then fall back.
             NVIDIA_SMI_FAILURE_LOGGED.get_or_init(|| {
                 eprintln!("[trv] nvidia-smi unavailable for gpu_query_all — using sysfs fallbacks");
@@ -194,16 +194,10 @@ pub fn gpu_query_all() -> GpuReadings {
 /// loop. The Tokio runtime is configured with `rt-multi-thread`, so this blocks one
 /// worker thread but will not stall the whole runtime. Acceptable for 1 Hz metrics.
 fn nvidia_smi_query(field: &str) -> Option<f64> {
-    let output = Command::new("nvidia-smi")
-        .args([
-            &format!("--query-gpu={}", field),
-            "--format=csv,noheader,nounits",
-        ])
-        .output();
-
-    let output = match output {
-        Ok(o) if o.status.success() => o,
-        Ok(_) | Err(_) => {
+    let query_arg = format!("--query-gpu={}", field);
+    let output = match run_nvidia_smi_with_timeout(&[&query_arg, "--format=csv,noheader,nounits"]) {
+        Some(o) => o,
+        None => {
             NVIDIA_SMI_FAILURE_LOGGED.get_or_init(|| {
                 eprintln!("[trv] nvidia-smi unavailable — GPU metrics via nvidia-smi will not be collected");
             });
@@ -214,6 +208,45 @@ fn nvidia_smi_query(field: &str) -> Option<f64> {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let line = stdout.trim().lines().next()?.trim();
     line.parse::<f64>().ok()
+}
+
+fn run_nvidia_smi_with_timeout(args: &[&str]) -> Option<std::process::Output> {
+    let mut child = Command::new("nvidia-smi")
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .ok()?;
+
+    let poll_interval = Duration::from_millis(50);
+    let mut elapsed = Duration::ZERO;
+
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                let output = child.wait_with_output().ok()?;
+                if output.status.success() {
+                    return Some(output);
+                }
+                return None;
+            }
+            Ok(None) => {}
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
+        }
+
+        if elapsed >= NVIDIA_SMI_TIMEOUT {
+            let _ = child.kill();
+            let _ = child.wait();
+            return None;
+        }
+
+        std::thread::sleep(poll_interval);
+        elapsed += poll_interval;
+    }
 }
 
 /// Collect paths matching `/sys/class/drm/card*/device/hwmon/hwmon*/temp*_input`.

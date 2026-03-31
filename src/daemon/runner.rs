@@ -10,7 +10,12 @@
 ///   7. Determine metric sources from theme
 ///   8. Prime CPU usage baseline (sysinfo needs two samples for a delta)
 ///   9. Loop: collect metrics → build cmd15 payload → send frame → sleep
-use std::{collections::HashSet, path::Path, time::Duration};
+use std::{
+    collections::HashSet,
+    path::Path,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use anyhow::{Context, Result};
 use chrono::{Offset, TimeZone};
@@ -21,7 +26,7 @@ use crate::{
     device::{adb, connection},
     metrics::collector::MetricCollector,
     protocol::cmd::{
-        Cmd15Field, PowerState, ShowId, build_cmd15_frame, build_cmd24_frame,
+        Cmd15Field, PowerState, build_cmd15_frame, build_cmd24_frame,
         build_cmd36_frame_inverse_long,
     },
     theme::{
@@ -44,18 +49,20 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
     // ── 2. ADB forward ─────────────────────────────────────────────────────
     if cfg.adb_forward {
         let port = cfg.port;
-        let (available, forwarded) = tokio::task::block_in_place(|| {
+        let (available, forward_result) = tokio::task::spawn_blocking(move || {
             if adb::adb_available() {
-                (true, adb::adb_forward(port))
+                (true, Some(adb::adb_forward(port)))
             } else {
-                (false, false)
+                (false, None)
             }
-        });
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("adb forward worker join error: {}", e))?;
         if available {
-            if forwarded {
-                info!("adb forward tcp:{p} tcp:{p} OK", p = cfg.port);
-            } else {
-                warn!("adb forward failed — continuing anyway");
+            match forward_result {
+                Some(Ok(())) => info!("adb forward tcp:{p} tcp:{p} OK", p = cfg.port),
+                Some(Err(e)) => warn!("adb forward failed: {e} — continuing anyway"),
+                None => warn!("adb forward skipped unexpectedly — continuing anyway"),
             }
         } else {
             warn!("adb not found in PATH — skipping forward");
@@ -85,7 +92,9 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
             .fix()
             .local_minus_utc() as i64;
         let adb_device_offset_s =
-            tokio::task::block_in_place(|| adb::adb_timezone_offset_seconds().map(i64::from));
+            tokio::task::spawn_blocking(|| adb::adb_timezone_offset_seconds().map(i64::from))
+                .await
+                .map_err(|e| anyhow::anyhow!("adb timezone worker join error: {}", e))?;
         let (device_base_offset_s, device_offset_source) = if let Some(offset) = adb_device_offset_s
         {
             (offset, "adb")
@@ -96,7 +105,22 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
         // We shift epoch by host_offset - device_base_offset so on-screen
         // wall-clock matches host local time even when timezone itself is immutable.
         let shift_s = host_offset_s - device_base_offset_s;
-        let target_epoch_ms: i64 = host_now.timestamp_millis() + (shift_s * 1000);
+        let shift_ms = shift_s.checked_mul(1000).ok_or_else(|| {
+            anyhow::anyhow!(
+                "cmd36 shift overflow: shift_s={} cannot be represented in ms",
+                shift_s
+            )
+        })?;
+        let target_epoch_ms = host_now
+            .timestamp_millis()
+            .checked_add(shift_ms)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "cmd36 target epoch overflow: host_ms={} shift_ms={}",
+                    host_now.timestamp_millis(),
+                    shift_ms
+                )
+            })?;
         let target_epoch_ms_u64 = u64::try_from(target_epoch_ms).map_err(|_| {
             anyhow::anyhow!(
                 "computed cmd36 target epoch ms is negative: {}",
@@ -134,8 +158,10 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
     // ── 5. Push theme assets (image/video widgets) ─────────────────────────
     {
         let dry_run = cfg.dry_run;
-        let theme_ref = &theme;
-        tokio::task::block_in_place(|| push_theme_assets(theme_ref, dry_run, None));
+        let theme_for_assets = theme.clone();
+        tokio::task::spawn_blocking(move || push_theme_assets(&theme_for_assets, dry_run, None))
+            .await
+            .map_err(|e| anyhow::anyhow!("asset push worker join error: {}", e))?;
     }
 
     // ── 6. Send cmd3A split frames ─────────────────────────────────────────
@@ -184,8 +210,17 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
     );
 
     // ── 8. Prime CPU baseline ──────────────────────────────────────────────
-    let mut collector = MetricCollector::new(cfg.temp_offset_c);
-    collector.prime();
+    let collector = Arc::new(Mutex::new(MetricCollector::new(cfg.temp_offset_c)));
+    {
+        let collector_for_prime = Arc::clone(&collector);
+        tokio::task::spawn_blocking(move || {
+            if let Ok(mut c) = collector_for_prime.lock() {
+                c.prime();
+            }
+        })
+        .await
+        .map_err(|e| anyhow::anyhow!("metric prime worker join error: {}", e))?;
+    }
     // Give sysinfo time to accumulate a CPU usage delta
     tokio::time::sleep(Duration::from_millis(500)).await;
 
@@ -207,7 +242,7 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
             break;
         }
 
-        match send_metrics_frame(&cfg, &mut collector, &sources).await {
+        match send_metrics_frame(&cfg, Arc::clone(&collector), &sources).await {
             Ok(()) => {
                 sent += 1;
                 consecutive_errors = 0;
@@ -281,7 +316,7 @@ pub fn push_theme_assets(
     for (i, widget) in theme.widgets.iter().enumerate() {
         // Check for cancellation before each potential blocking push.
         if let Some(flag) = cancel
-            && flag.load(std::sync::atomic::Ordering::Relaxed)
+            && flag.load(std::sync::atomic::Ordering::Acquire)
         {
             info!("push_theme_assets: cancelled at widget[{i}]");
             return;
@@ -327,11 +362,9 @@ pub fn push_theme_assets(
         }
 
         info!("pushing widget[{i}] {kind_name}: {local} -> {remote}");
-        let ok = adb::adb_push(local, &remote);
-        if ok {
-            info!("widget[{i}] {kind_name} pushed OK");
-        } else {
-            warn!("adb push failed for widget[{i}] {kind_name} — continuing");
+        match adb::adb_push(local, &remote) {
+            Ok(()) => info!("widget[{i}] {kind_name} pushed OK"),
+            Err(e) => warn!("adb push failed for widget[{i}] {kind_name}: {e} — continuing"),
         }
     }
 }
@@ -339,10 +372,21 @@ pub fn push_theme_assets(
 /// Collect one round of metrics and send a cmd15 frame.
 async fn send_metrics_frame(
     cfg: &DaemonConfig,
-    collector: &mut MetricCollector,
-    sources: &[(String, crate::theme::model::MetricSource)],
+    collector: Arc<Mutex<MetricCollector>>,
+    sources: &[(
+        crate::protocol::cmd::ShowId,
+        crate::theme::model::MetricSource,
+    )],
 ) -> Result<()> {
-    let readings = tokio::task::block_in_place(|| collector.collect(sources));
+    let sources_owned = sources.to_vec();
+    let readings = tokio::task::spawn_blocking(move || {
+        let mut guard = collector
+            .lock()
+            .map_err(|_| anyhow::anyhow!("metric collector mutex poisoned"))?;
+        Ok::<_, anyhow::Error>(guard.collect(&sources_owned))
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("metric collection worker join error: {}", e))??;
 
     if readings.is_empty() {
         return Err(anyhow::anyhow!("no metric values available"));
@@ -350,10 +394,8 @@ async fn send_metrics_frame(
 
     let mut fields: Vec<Cmd15Field> = Vec::with_capacity(readings.len());
     for (show_id, value) in &readings {
-        let typed_show = ShowId::try_from(show_id.as_str())
-            .map_err(|e| anyhow::anyhow!("invalid show id '{}' from collector: {}", show_id, e))?;
         fields.push(Cmd15Field {
-            show_id: typed_show,
+            show_id: *show_id,
             value: *value,
         });
     }

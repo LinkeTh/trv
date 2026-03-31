@@ -15,6 +15,7 @@
 /// let readings = collector.collect(&sources);
 /// ```
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::time::Instant;
 
 use sysinfo::{Components, DiskRefreshKind, Disks, Networks, System};
@@ -73,7 +74,10 @@ impl MetricCollector {
     /// When any two or more GPU metrics are requested, a single batched
     /// nvidia-smi call (`gpu_query_all`) is used to avoid spawning multiple
     /// processes per collection cycle.
-    pub fn collect(&mut self, sources: &[(String, MetricSource)]) -> HashMap<String, f64> {
+    pub fn collect<K>(&mut self, sources: &[(K, MetricSource)]) -> HashMap<K, f64>
+    where
+        K: Clone + Eq + Hash,
+    {
         let now = Instant::now();
         let elapsed = now.saturating_duration_since(self.last_collect_at);
         self.last_collect_at = now;
@@ -113,7 +117,7 @@ impl MetricCollector {
             None
         };
 
-        let mut map = HashMap::new();
+        let mut map: HashMap<K, f64> = HashMap::new();
 
         for (show_id, source) in sources {
             let value: Option<f64> = match source {

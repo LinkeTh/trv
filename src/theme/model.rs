@@ -4,6 +4,8 @@
 /// The protocol hex encoding lives in `theme::hex`.
 use serde::{Deserialize, Serialize};
 
+use crate::protocol::cmd::ShowId;
+
 /// Complete theme definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Theme {
@@ -224,7 +226,7 @@ pub(crate) fn image_remote_name(path: &str) -> String {
         .find(|seg| !seg.is_empty())
         .unwrap_or("");
 
-    if candidate.ends_with(':') {
+    if candidate.ends_with(':') || candidate.contains('\0') {
         String::new()
     } else {
         candidate.to_string()
@@ -278,22 +280,22 @@ pub enum MetricSource {
 }
 
 impl MetricSource {
-    /// Returns the protocol show ID hex string for this source.
-    pub fn show_id(&self) -> &'static str {
+    /// Returns the protocol show ID for this source.
+    pub fn show_id(&self) -> ShowId {
         match self {
-            MetricSource::CpuTemp => "00",
-            MetricSource::CpuFreq => "07",
-            MetricSource::CpuUsage => "05",
-            MetricSource::MemUsage => "06",
-            MetricSource::GpuTemp => "0D",
-            MetricSource::GpuUsage => "0E",
-            MetricSource::GpuFreq => "0F",
-            MetricSource::FanSpeed => "09",
-            MetricSource::LiquidTemp => "10",
-            MetricSource::NetDown => "23",
-            MetricSource::NetUp => "24",
-            MetricSource::DiskRead => "1E",
-            MetricSource::DiskWrite => "1F",
+            MetricSource::CpuTemp => ShowId::try_from(0x00).expect("valid show id 00"),
+            MetricSource::CpuFreq => ShowId::try_from(0x07).expect("valid show id 07"),
+            MetricSource::CpuUsage => ShowId::try_from(0x05).expect("valid show id 05"),
+            MetricSource::MemUsage => ShowId::try_from(0x06).expect("valid show id 06"),
+            MetricSource::GpuTemp => ShowId::try_from(0x0D).expect("valid show id 0D"),
+            MetricSource::GpuUsage => ShowId::try_from(0x0E).expect("valid show id 0E"),
+            MetricSource::GpuFreq => ShowId::try_from(0x0F).expect("valid show id 0F"),
+            MetricSource::FanSpeed => ShowId::try_from(0x09).expect("valid show id 09"),
+            MetricSource::LiquidTemp => ShowId::try_from(0x10).expect("valid show id 10"),
+            MetricSource::NetDown => ShowId::try_from(0x23).expect("valid show id 23"),
+            MetricSource::NetUp => ShowId::try_from(0x24).expect("valid show id 24"),
+            MetricSource::DiskRead => ShowId::try_from(0x1E).expect("valid show id 1E"),
+            MetricSource::DiskWrite => ShowId::try_from(0x1F).expect("valid show id 1F"),
         }
     }
 
@@ -379,8 +381,7 @@ impl TryFrom<&Widget> for crate::theme::hex::WidgetHexParams {
                 label,
                 show_label,
             } => {
-                p.num_type = u8::from_str_radix(source.show_id(), 16)
-                    .map_err(|_| format!("invalid show_id for {:?}", source))?;
+                p.num_type = source.show_id().as_u8();
                 if unit.len() > 5 {
                     return Err(format!(
                         "metric unit too long ({} bytes, max 5): '{}'",
@@ -443,15 +444,15 @@ impl TryFrom<&Widget> for crate::theme::hex::WidgetHexParams {
 ///
 /// If two metric widgets share the same show_id (same `MetricSource`), only the
 /// first occurrence is kept to avoid duplicate cmd15 writes at the same offset.
-pub fn theme_metric_sources(theme: &Theme) -> Vec<(String, MetricSource)> {
+pub fn theme_metric_sources(theme: &Theme) -> Vec<(ShowId, MetricSource)> {
     let mut seen = std::collections::HashSet::new();
     theme
         .widgets
         .iter()
         .filter_map(|w| {
             if let WidgetKind::Metric { source, .. } = &w.kind {
-                let id = source.show_id().to_string();
-                if seen.insert(id.clone()) {
+                let id = source.show_id();
+                if seen.insert(id) {
                     Some((id, source.clone()))
                 } else {
                     None // duplicate show_id — skip

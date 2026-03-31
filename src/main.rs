@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
+use tempfile::NamedTempFile;
 use tracing_subscriber::EnvFilter;
 
 use trv::config as app_config;
@@ -161,8 +162,14 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             // Resolve theme path: --preset writes to a temp file so the daemon
             // can use its path-based config.  For the daemon we need a file path,
             // so we write the preset to a temp location.
-            let theme_path = if let Some(slug) = preset {
-                resolve_preset_to_tempfile(&slug).map_err(|e| anyhow::anyhow!("{}", e))?
+            let preset_tempfile_guard: Option<NamedTempFile> = if let Some(slug) = preset {
+                Some(resolve_preset_to_tempfile(&slug).map_err(|e| anyhow::anyhow!("{}", e))?)
+            } else {
+                None
+            };
+
+            let theme_path = if let Some(tmp) = preset_tempfile_guard.as_ref() {
+                tmp.path().to_path_buf()
             } else if let Some(path) = theme {
                 path
             } else {
@@ -214,9 +221,8 @@ async fn run(cli: Cli) -> anyhow::Result<()> {
             if adb_forward {
                 use trv::device::adb;
                 if adb::adb_available() {
-                    let ok = adb::adb_forward(port);
-                    if !ok {
-                        eprintln!("warning: adb forward failed — continuing");
+                    if let Err(e) = adb::adb_forward(port) {
+                        eprintln!("warning: adb forward failed: {} — continuing", e);
                     }
                 } else {
                     eprintln!("warning: adb not found in PATH — skipping forward");
@@ -370,16 +376,21 @@ fn ensure_default_tui_theme_path() -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// Write a preset TOML to a named temporary file and return its path.
+/// Write a preset TOML to a secure temporary file and return the handle.
 ///
 /// Used by `trv daemon --preset` so the daemon config can hold a file path.
-fn resolve_preset_to_tempfile(slug: &str) -> Result<PathBuf, String> {
+/// Caller must keep the returned handle alive while the daemon is running.
+fn resolve_preset_to_tempfile(slug: &str) -> Result<NamedTempFile, String> {
+    use std::io::Write;
+
     let toml_str = find_preset(slug)
         .ok_or_else(|| format!("unknown preset '{}' — run `trv list` to see options", slug))?;
 
-    let dir = std::env::temp_dir();
-    let path = dir.join(format!("trv_preset_{}.toml", slug));
-    std::fs::write(&path, toml_str)
-        .map_err(|e| format!("could not write preset temp file {:?}: {}", path, e))?;
-    Ok(path)
+    let mut file =
+        NamedTempFile::new().map_err(|e| format!("could not create preset temp file: {}", e))?;
+    file.write_all(toml_str.as_bytes())
+        .map_err(|e| format!("could not write preset temp file {:?}: {}", file.path(), e))?;
+    file.flush()
+        .map_err(|e| format!("could not flush preset temp file {:?}: {}", file.path(), e))?;
+    Ok(file)
 }
