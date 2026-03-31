@@ -238,42 +238,6 @@ pub fn build_cmd38_frame(code: OrientationCode) -> Result<Vec<u8>, String> {
     build_frame_default(CMD_ORIENTATION, &payload)
 }
 
-/// CMD 0x36 legacy payload — 14-digit date string.
-///
-/// Accepts a 14-char date string `"YYYYMMDDHHmmss"` and appends two NUL bytes.
-/// This matches the original app behavior on firmware paths that call
-/// `Utils.setDeviceTimeStr(...)`.
-///
-/// On some firmware variants cmd36 does **not** use that branch and instead
-/// routes through `Utils.setDeviceTime(long)`. For those variants, prefer
-/// [`build_cmd36_payload_inverse_long`].
-///
-/// Payload layout (16 bytes):
-///   \[date string as ASCII bytes: 14\] + \[0x00, 0x00: 2-byte padding\]
-///
-/// The firmware converts the raw payload to a hex string, trims 5 trailing
-/// chars (4 from padding + 1 from the frame tail byte that leaks into
-/// `content.element`), then hex-decodes back to ASCII to recover the original
-/// 14-char date string.
-pub fn build_cmd36_payload(local_time_str: &str) -> Result<Vec<u8>, String> {
-    if local_time_str.len() != 14 || !local_time_str.chars().all(|c| c.is_ascii_digit()) {
-        return Err(format!(
-            "cmd36 time must be exactly 14 ASCII digits (YYYYMMDDHHmmss), got: {:?}",
-            local_time_str
-        ));
-    }
-    let mut payload = Vec::with_capacity(16);
-    payload.extend_from_slice(local_time_str.as_bytes()); // 14 bytes
-    payload.extend_from_slice(&[0x00, 0x00]); // 2-byte padding
-    Ok(payload) // 16 bytes total
-}
-
-/// Build a complete cmd36 frame from a local-time date string.
-pub fn build_cmd36_frame(local_time_str: &str) -> Result<Vec<u8>, String> {
-    let payload = build_cmd36_payload(local_time_str)?;
-    build_frame_default(CMD_TIME_SYNC, &payload)
-}
-
 /// Build cmd36 payload that decodes through firmware `TextUtil.stringToLong`
 /// into a target decimal value and then routes to `Utils.setDeviceTime(long)`.
 ///
@@ -446,35 +410,25 @@ mod tests {
     }
 
     #[test]
-    fn test_build_cmd36_payload_format() {
-        let payload = build_cmd36_payload("20250331100000").unwrap();
-        assert_eq!(payload.len(), 16);
-        assert_eq!(&payload[..14], b"20250331100000");
-        assert_eq!(&payload[14..], &[0x00, 0x00]);
+    fn test_build_cmd36_payload_inverse_long_known_value() {
+        let payload = build_cmd36_payload_inverse_long(0x1122_3344).unwrap();
+        assert_eq!(payload, vec![0x44, 0x33, 0x22, 0x11, 0x00, 0x00]);
     }
 
     #[test]
-    fn test_build_cmd36_rejects_short() {
-        assert!(build_cmd36_payload("2025033110000").is_err()); // 13 chars
+    fn test_build_cmd36_payload_inverse_long_odd_hex_len_pads_left() {
+        let payload = build_cmd36_payload_inverse_long(0x12_345).unwrap();
+        assert_eq!(payload, vec![0x45, 0x23, 0x01, 0x00, 0x00]);
     }
 
     #[test]
-    fn test_build_cmd36_rejects_long() {
-        assert!(build_cmd36_payload("202503311000000").is_err()); // 15 chars
-    }
-
-    #[test]
-    fn test_build_cmd36_rejects_non_digit() {
-        assert!(build_cmd36_payload("2025033110000a").is_err());
-    }
-
-    #[test]
-    fn test_build_cmd36_frame_structure() {
-        let frame = build_cmd36_frame("20250331100000").unwrap();
-        // AAF5 + len(0012=18=1+1+16) + SN(00) + CMD(36) + 16 payload bytes + tail(00)
-        assert_eq!(frame.len(), 2 + 2 + 1 + 1 + 16 + 1); // 23 bytes
+    fn test_build_cmd36_frame_inverse_long_structure() {
+        let frame = build_cmd36_frame_inverse_long(0x1122_3344).unwrap();
+        // AAF5 + len(0008=8=1+1+6) + SN(00) + CMD(36) + 6 payload bytes + tail(00)
+        assert_eq!(frame.len(), 2 + 2 + 1 + 1 + 6 + 1);
         let hex = hex::encode_upper(&frame);
-        assert!(hex.starts_with("AAF500120036"), "prefix: {}", hex);
+        assert!(hex.starts_with("AAF500080036"), "prefix: {}", hex);
+        assert!(hex.contains("443322110000"), "payload: {}", hex);
         assert!(hex.ends_with("00"), "tail: {}", hex);
     }
 }

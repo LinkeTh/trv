@@ -13,6 +13,8 @@
 use std::{collections::HashSet, path::Path, time::Duration};
 
 use anyhow::{Context, Result};
+use chrono::{Offset, TimeZone};
+use chrono_tz::Asia::Shanghai;
 use tracing::{debug, error, info, warn};
 
 use crate::{
@@ -78,11 +80,22 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
     if cfg.sync_time {
         let host_now = chrono::Local::now();
         let host_offset_s = host_now.offset().local_minus_utc() as i64;
-        // Firmware timezone remains fixed on many devices (Asia/Shanghai, +08:00).
-        // We shift epoch by host_offset - device_offset so on-screen wall-clock
-        // matches host local time even when timezone itself is immutable.
-        const DEVICE_OFFSET_S: i64 = 8 * 3600;
-        let shift_s = host_offset_s - DEVICE_OFFSET_S;
+        let shanghai_offset_s = Shanghai
+            .offset_from_utc_datetime(&host_now.naive_utc())
+            .fix()
+            .local_minus_utc() as i64;
+        let adb_device_offset_s =
+            tokio::task::block_in_place(|| adb::adb_timezone_offset_seconds().map(i64::from));
+        let (device_base_offset_s, device_offset_source) = if let Some(offset) = adb_device_offset_s
+        {
+            (offset, "adb")
+        } else {
+            (shanghai_offset_s, "asia-shanghai-fallback")
+        };
+
+        // We shift epoch by host_offset - device_base_offset so on-screen
+        // wall-clock matches host local time even when timezone itself is immutable.
+        let shift_s = host_offset_s - device_base_offset_s;
         let target_epoch_ms: i64 = host_now.timestamp_millis() + (shift_s * 1000);
         let target_epoch_ms_u64 = u64::try_from(target_epoch_ms).map_err(|_| {
             anyhow::anyhow!(
@@ -94,19 +107,23 @@ pub async fn run(cfg: DaemonConfig) -> Result<()> {
             .map_err(|e| anyhow::anyhow!("build cmd36 inverse-long frame: {}", e))?;
         if cfg.dry_run {
             info!(
-                "dry-run cmd36 time-sync frame={} target_epoch_ms={} host_offset_s={} shift_s={}",
+                "dry-run cmd36 time-sync frame={} target_epoch_ms={} host_offset_s={} device_base_offset_s={} device_offset_source={} shift_s={}",
                 hex::encode_upper(&frame),
                 target_epoch_ms_u64,
                 host_offset_s,
+                device_base_offset_s,
+                device_offset_source,
                 shift_s
             );
         } else {
             match connection::send_frame(&cfg.host, cfg.port, &frame, cfg.recv_timeout_ms).await {
                 Ok(reply) => info!(
-                    "cmd36 time-sync reply={} strategy=inverse-long target_epoch_ms={} host_offset_s={} shift_s={}",
+                    "cmd36 time-sync reply={} strategy=inverse-long target_epoch_ms={} host_offset_s={} device_base_offset_s={} device_offset_source={} shift_s={}",
                     hex::encode_upper(&reply),
                     target_epoch_ms_u64,
                     host_offset_s,
+                    device_base_offset_s,
+                    device_offset_source,
                     shift_s
                 ),
                 Err(e) => warn!("cmd36 time-sync error: {e} — continuing"),

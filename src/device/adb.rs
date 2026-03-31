@@ -160,6 +160,39 @@ fn parse_wm_size_output(output: &str) -> Option<(u16, u16)> {
     override_size.or(physical).or(fallback)
 }
 
+fn parse_utc_offset_hhmm(output: &str) -> Option<i32> {
+    let raw = output.trim();
+
+    let (sign, hhmm) = if let Some(rest) = raw.strip_prefix('+') {
+        (1_i32, rest)
+    } else if let Some(rest) = raw.strip_prefix('-') {
+        (-1_i32, rest)
+    } else {
+        return None;
+    };
+
+    let digits = if hhmm.len() == 4 {
+        hhmm.to_string()
+    } else if hhmm.len() == 5 && hhmm.as_bytes().get(2) == Some(&b':') {
+        format!("{}{}", &hhmm[0..2], &hhmm[3..5])
+    } else {
+        return None;
+    };
+
+    if !digits.chars().all(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+
+    let hour = digits[0..2].parse::<i32>().ok()?;
+    let minute = digits[2..4].parse::<i32>().ok()?;
+
+    if hour > 23 || minute > 59 {
+        return None;
+    }
+
+    Some(sign * ((hour * 3600) + (minute * 60)))
+}
+
 /// Run `adb forward tcp:<port> tcp:<port>` to set up port forwarding.
 ///
 /// Returns `true` if the command succeeded, `false` otherwise.
@@ -195,6 +228,16 @@ pub fn adb_display_size() -> Option<(u16, u16)> {
     parse_wm_size_output(&output)
 }
 
+/// Query device timezone offset in seconds from UTC.
+///
+/// Uses `adb shell date +%z` and parses `±HHMM` (or `±HH:MM`) output.
+/// Returns `None` when no device is connected, adb is unavailable, or parsing
+/// fails.
+pub fn adb_timezone_offset_seconds() -> Option<i32> {
+    let output = run_adb_capture_with_timeout(&["shell", "date", "+%z"], ADB_QUERY_TIMEOUT)?;
+    parse_utc_offset_hhmm(&output)
+}
+
 /// Run `adb shell settings put system <key> <value>`.
 ///
 /// Returns `true` on successful command exit status.
@@ -226,7 +269,7 @@ fn is_safe_adb_arg(arg: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_safe_adb_arg, parse_wm_size_output};
+    use super::{is_safe_adb_arg, parse_utc_offset_hhmm, parse_wm_size_output};
 
     #[test]
     fn adb_arg_rejects_empty_and_flag_like_values() {
@@ -277,5 +320,23 @@ mod tests {
     fn parse_wm_size_returns_none_for_invalid_output() {
         let out = "wm size: unknown\n";
         assert_eq!(parse_wm_size_output(out), None);
+    }
+
+    #[test]
+    fn parse_utc_offset_hhmm_accepts_basic_formats() {
+        assert_eq!(parse_utc_offset_hhmm("+0800\n"), Some(8 * 3600));
+        assert_eq!(
+            parse_utc_offset_hhmm("-0530\r\n"),
+            Some(-(5 * 3600 + 30 * 60))
+        );
+        assert_eq!(parse_utc_offset_hhmm("+08:00"), Some(8 * 3600));
+    }
+
+    #[test]
+    fn parse_utc_offset_hhmm_rejects_invalid_values() {
+        assert_eq!(parse_utc_offset_hhmm("0800"), None);
+        assert_eq!(parse_utc_offset_hhmm("+2500"), None);
+        assert_eq!(parse_utc_offset_hhmm("+0860"), None);
+        assert_eq!(parse_utc_offset_hhmm("UTC+8"), None);
     }
 }
