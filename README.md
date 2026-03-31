@@ -22,6 +22,8 @@ Example LCD output on device:
 
 ![trv LCD output](images/TRV_LCD_OUTPUT.png)
 
+![trv LCD output current device](images/TRV_LCD_OUTPUT_CURRENT.png)
+
 ## Platform support
 
 Current installer support is **Arch Linux / CachyOS only**.
