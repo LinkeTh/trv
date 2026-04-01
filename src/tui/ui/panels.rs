@@ -1,5 +1,7 @@
 use super::*;
 
+pub(super) const METRIC_PREVIEW_ROW_COUNT: u16 = 13;
+
 pub(super) fn draw_sidebar(f: &mut Frame, app: &App, area: Rect) {
     let focused = app.focus == Focus::Sidebar;
     let border_style = panel_border_style(focused);
@@ -184,10 +186,18 @@ pub(super) fn draw_metric_preview_panel(f: &mut Frame, app: &App, area: Rect) {
 
     let metric_rows = [
         ("CPU", "cpu_temp", palette::PEACH),
+        ("CPUF", "cpu_freq", palette::YELLOW),
         ("CPU%", "cpu_usage", palette::SAPPHIRE),
         ("MEM%", "mem_usage", palette::TEAL),
         ("GPU", "gpu_temp", palette::MAUVE),
+        ("GPUF", "gpu_freq", palette::LAVENDER),
         ("GPU%", "gpu_usage", palette::BLUE),
+        ("FAN", "fan_speed", palette::GREEN),
+        ("LIQ", "liquid_temp", palette::ROSEWATER),
+        ("NETD", "net_down", palette::SAPPHIRE),
+        ("NETU", "net_up", palette::TEAL),
+        ("DSKR", "disk_read", palette::PEACH),
+        ("DSKW", "disk_write", palette::RED),
     ];
 
     if inner.height == 0 {

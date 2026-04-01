@@ -1,11 +1,12 @@
 /// Main UI layout renderer — M5 edition.
 ///
-/// Layout (horizontal split):
+/// Layout:
 ///   ┌─ Sidebar (22%) ─┬───── Canvas (56%) ─────┬─ Properties (22%) ─┐
 ///   │ Widget list     │  device preview          │ Editable fields    │
-///   └─────────────────┴─────────────────────────┴────────────────────┘
-///   ┤ Metrics preview (25%) │ Log panel (75%, 5 rows visible)          │
-///   ┤ Status bar (1 row at bottom)                                    │
+///   ├─────────────────┴─────────────────────────┴────────────────────┤
+///   │ Metrics preview │ Log panel (right side, 5 rows visible)        │
+///   ├──────────────────────────────────────────────────────────────────┤
+///   │ Status bar (1 row at bottom)                                    │
 ///
 /// Overlays are rendered on top as centered popups:
 ///   Help, AddWidget picker, DeleteConfirm, New theme, Save dialog, Open dialog.
@@ -46,40 +47,48 @@ use self::panels::*;
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
 
-    // Split main content, log panel, and status bar.
-    let rows = Layout::default()
+    // Split content and status bar.
+    let root_rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(1)])
+        .split(area);
+    let content_area = root_rows[0];
+    let status_area = root_rows[1];
+
+    // Keep left column aligned with the sidebar boundary across the full height.
+    let content_cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(22), Constraint::Percentage(78)])
+        .split(content_area);
+    let left_col = content_cols[0];
+    let right_col = content_cols[1];
+
+    let left_rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(0),
+            Constraint::Length(METRIC_PREVIEW_ROW_COUNT + 2),
+        ])
+        .split(left_col);
+    let sidebar_area = left_rows[0];
+    let metrics_area = left_rows[1];
+
+    let right_rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(0),
             Constraint::Length(LOG_VISIBLE_ROWS as u16 + 2),
-            Constraint::Length(1),
         ])
-        .split(area);
+        .split(right_col);
+    let main_right_area = right_rows[0];
+    let log_area = right_rows[1];
 
-    let main_area = rows[0];
-    let lower_area = rows[1];
-    let status_area = rows[2];
-
-    let lower_cols = Layout::default()
+    let main_cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(25), Constraint::Percentage(75)])
-        .split(lower_area);
-    let metrics_area = lower_cols[0];
-    let log_area = lower_cols[1];
-
-    // 3-panel horizontal split
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Percentage(22),
-            Constraint::Percentage(56),
-            Constraint::Percentage(22),
-        ])
-        .split(main_area);
-
-    let sidebar_area = cols[0];
-    let canvas_area = cols[1];
-    let props_area = cols[2];
+        .constraints([Constraint::Ratio(56, 78), Constraint::Ratio(22, 78)])
+        .split(main_right_area);
+    let canvas_area = main_cols[0];
+    let props_area = main_cols[1];
 
     draw_sidebar(f, app, sidebar_area);
     canvas::render(
